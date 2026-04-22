@@ -1,0 +1,2948 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+public/
+  file.svg
+  globe.svg
+  next.svg
+  vercel.svg
+  window.svg
+src/
+  app/
+    admin/
+      page.tsx
+    auth/
+      callback/
+        route.ts
+    home/
+      admin/
+        page.tsx
+      kds/
+        layout.tsx
+        page.tsx
+      pos/
+        page.tsx
+      layout.tsx
+      page.tsx
+    kds/
+      layout.tsx
+      page.tsx
+    login/
+      page.tsx
+    pos/
+      page.tsx
+    register/
+      page.tsx
+    favicon.ico
+    globals.css
+    layout.tsx
+    page.tsx
+  components/
+    kds/
+      OrderCard.tsx
+    pos/
+      CartPanel.tsx
+      MenuCard.tsx
+      MenuGrid.tsx
+    ui/
+      button.tsx
+  lib/
+    supabase-server.ts
+    supabase.ts
+    utils.ts
+  store/
+    cart.store.ts
+  types/
+    database.ts
+  middleware.ts
+.gitignore
+AGENTS.md
+CLAUDE.md
+components.json
+eslint.config.mjs
+next.config.ts
+package.json
+postcss.config.mjs
+README.md
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path="src/app/admin/page.tsx">
+'use client'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
+import { formatRupiah } from '@/lib/utils'
+import type { Menu } from '@/types/database'
+
+type Tab = 'menus' | 'report'
+
+export default function AdminPage() {
+  const [tab, setTab] = useState<Tab>('menus')
+  const [menus, setMenus] = useState<Menu[]>([])
+  const [form, setForm] = useState({ name:'', price:'', category:'Makanan' })
+  const [editId, setEditId] = useState<string|null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
+  const [report, setReport] = useState<{total:number,revenue:number,cash:number,qris:number}|null>(null)
+
+  const fetchMenus = async () => {
+    const { data } = await supabase.from('menus').select('*').order('category').order('name')
+    if (data) setMenus(data as Menu[])
+  }
+  useEffect(() => { fetchMenus() }, [])
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      const { data } = await supabase.from('orders').select('total_price,payment_method')
+        .gte('created_at', `${reportDate}T00:00:00`).lte('created_at', `${reportDate}T23:59:59`)
+        .eq('status', 'COMPLETED')
+      if (data) setReport({
+        total: data.length,
+        revenue: data.reduce((s,o) => s + Number(o.total_price), 0),
+        cash: data.filter(o => o.payment_method==='CASH').length,
+        qris: data.filter(o => o.payment_method==='QRIS').length
+      })
+    }
+    fetchReport()
+  }, [reportDate])
+
+  const handleSubmit = async () => {
+    if (!form.name || !form.price) { toast.error('Nama dan harga wajib diisi'); return }
+    const payload = { name: form.name, price: parseFloat(form.price), category: form.category }
+    if (editId) {
+      await supabase.from('menus').update(payload).eq('id', editId)
+      toast.success('Menu diupdate')
+    } else {
+      await supabase.from('menus').insert(payload)
+      toast.success('Menu ditambahkan')
+    }
+    setForm({ name:'', price:'', category:'Makanan' }); setEditId(null); setShowForm(false); fetchMenus()
+  }
+
+  const toggleAvail = async (m: Menu) => {
+    await supabase.from('menus').update({ is_available: !m.is_available }).eq('id', m.id)
+    toast.success(`${m.name} → ${!m.is_available?'Tersedia':'Habis'}`); fetchMenus()
+  }
+
+  const deleteMenu = async (m: Menu) => {
+    if (!confirm(`Hapus "${m.name}"?`)) return
+    await supabase.from('menus').delete().eq('id', m.id)
+    toast.success('Dihapus'); fetchMenus()
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <header className="px-6 py-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+        <h1 className="text-xl font-bold">⚙️ Admin — kasir-dapur</h1>
+        <div className="flex gap-2">
+          {(['menus', 'report'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab===t?'bg-orange-600 text-white':'bg-gray-800 text-gray-400'}`}>
+              {t === 'menus' ? '🍜 Kelola Menu' : '📊 Laporan'}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <main className="p-6 max-w-4xl mx-auto">
+        {tab === 'menus' && (
+          <div>
+            <div className="flex justify-between mb-4">
+              <h2 className="text-lg font-bold">Daftar Menu</h2>
+              <button onClick={() => setShowForm(true)} className="px-4 py-2 bg-orange-600 rounded-lg text-sm font-bold">+ Tambah</button>
+            </div>
+            {showForm && (
+              <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4 grid grid-cols-2 gap-3">
+                <input placeholder="Nama *" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
+                <input type="number" placeholder="Harga *" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
+                <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+                  {['Makanan','Minuman','Snack'].map(c=><option key={c}>{c}</option>)}
+                </select>
+                <div className="flex gap-2 col-span-2 justify-end">
+                  <button onClick={()=>setShowForm(false)} className="px-4 py-2 bg-gray-700 rounded-lg text-sm">Batal</button>
+                  <button onClick={handleSubmit} className="px-4 py-2 bg-orange-600 rounded-lg text-sm font-bold">Simpan</button>
+                </div>
+              </div>
+            )}
+            <table className="w-full text-sm bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
+              <thead className="bg-gray-800 text-gray-400 text-xs uppercase">
+                <tr>{['Nama','Kategori','Harga','Status','Aksi'].map(h=><th key={h} className="px-4 py-3 text-left">{h}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {menus.map(m => (
+                  <tr key={m.id}>
+                    <td className="px-4 py-3 font-medium text-white">{m.name}</td>
+                    <td className="px-4 py-3 text-gray-400">{m.category}</td>
+                    <td className="px-4 py-3 text-orange-400 font-mono">{formatRupiah(m.price)}</td>
+                    <td className="px-4 py-3">
+                      <button onClick={()=>toggleAvail(m)}
+                        className={`px-3 py-1 rounded-full text-xs font-bold ${m.is_available?'bg-green-900 text-green-400':'bg-red-900 text-red-400'}`}>
+                        {m.is_available?'Tersedia':'Habis'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button onClick={()=>{setEditId(m.id);setForm({name:m.name,price:String(m.price),category:m.category});setShowForm(true)}}
+                          className="px-3 py-1 bg-gray-700 rounded text-xs">Edit</button>
+                        <button onClick={()=>deleteMenu(m)} className="px-3 py-1 bg-red-900 rounded text-xs text-red-400">Hapus</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {tab === 'report' && (
+          <div>
+            <div className="flex items-center gap-4 mb-6">
+              <h2 className="text-lg font-bold">Laporan Penjualan</h2>
+              <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"/>
+            </div>
+            {report && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  ['🧾',`${report.total} pesanan`,'Total Transaksi'],
+                  ['💰',formatRupiah(report.revenue),'Total Pendapatan'],
+                  ['💵',`${report.cash} pesanan`,'Bayar Cash'],
+                  ['📱',`${report.qris} pesanan`,'Bayar QRIS']
+                ].map(([ico,val,lbl]) => (
+                  <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                    <div className="text-3xl mb-2">{ico}</div>
+                    <div className="text-xl font-black text-white">{val}</div>
+                    <div className="text-xs text-gray-500 mt-1">{lbl}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/auth/callback/route.ts">
+// src/app/auth/callback/route.ts
+// UPDATE: file baru — handler untuk link verifikasi email
+//
+// Ketika user klik link di email, Supabase redirect ke URL ini
+// dengan query param 'code'. Kita tukar code ini jadi sesi aktif.
+//
+// Kenapa perlu file ini?
+// Supabase Auth pakai "PKCE flow" — link email mengandung kode satu kali
+// yang harus ditukar dengan token sesi. Proses ini terjadi di sini.
+
+import { NextResponse }          from 'next/server'
+import { createServerClient }    from '@supabase/ssr'
+import { cookies }               from 'next/headers'
+import type { NextRequest }      from 'next/server'
+
+export async function GET(request: NextRequest) {
+  const { searchParams, origin } = new URL(request.url)
+  const code  = searchParams.get('code')
+  const next  = searchParams.get('next') ?? '/home' // URL tujuan setelah verifikasi
+
+  if (code) {
+    const cookieStore = await cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll() },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          },
+        },
+      }
+    )
+
+    // Tukar 'code' dari URL email → sesi aktif di browser
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (!error) {
+      // Verifikasi berhasil → ke homepage
+      return NextResponse.redirect(`${origin}${next}`)
+    }
+  }
+
+  // Gagal → ke halaman login dengan pesan error
+  return NextResponse.redirect(`${origin}/login?error=verifikasi-gagal`)
+}
+</file>
+
+<file path="src/app/home/admin/page.tsx">
+'use client'
+// src/app/home/admin/page.tsx
+// UPDATE dari src/app/admin/page.tsx:
+// - Path pindah ke /home/admin
+// - Tambah kolom 'Stok' di tabel menu
+// - Tambah input stok di form tambah/edit menu
+// - Hapus field image dari form (image_url sudah dihapus dari DB)
+// - Header dihapus (sudah ada di HomeLayout)
+
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
+import { formatRupiah } from '@/lib/utils'
+import type { Menu } from '@/types/database'
+
+type Tab = 'menus' | 'report'
+
+export default function AdminPage() {
+  const [tab,        setTab]        = useState<Tab>('menus')
+  const [menus,      setMenus]      = useState<Menu[]>([])
+  // UPDATE: tambah field stock di form, hapus field image
+  const [form,       setForm]       = useState({
+    name: '', price: '', category: 'Makanan', stock: '0'
+  })
+  const [editId,     setEditId]     = useState<string | null>(null)
+  const [showForm,   setShowForm]   = useState(false)
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
+  const [report,     setReport]     = useState<{
+    total: number; revenue: number; cash: number; qris: number
+  } | null>(null)
+
+  const fetchMenus = async () => {
+    const { data } = await supabase
+      .from('menus')
+      .select('*')
+      .order('category')
+      .order('name')
+    if (data) setMenus(data as Menu[])
+  }
+
+  useEffect(() => { fetchMenus() }, [])
+
+  // Ambil laporan untuk tanggal yang dipilih
+  useEffect(() => {
+    const fetchReport = async () => {
+      const { data } = await supabase
+        .from('orders')
+        .select('total_price, payment_method')
+        .gte('created_at', `${reportDate}T00:00:00`)
+        .lte('created_at', `${reportDate}T23:59:59`)
+        .eq('status', 'COMPLETED')
+
+      if (data) setReport({
+        total:   data.length,
+        revenue: data.reduce((s, o) => s + Number(o.total_price), 0),
+        cash:    data.filter(o => o.payment_method === 'CASH').length,
+        qris:    data.filter(o => o.payment_method === 'QRIS').length,
+      })
+    }
+    fetchReport()
+  }, [reportDate])
+
+  const handleSubmit = async () => {
+    if (!form.name || !form.price) {
+      toast.error('Nama dan harga wajib diisi')
+      return
+    }
+
+    // UPDATE: sertakan stock di payload
+    const payload = {
+      name:     form.name,
+      price:    parseFloat(form.price),
+      category: form.category,
+      stock:    parseInt(form.stock) || 0,   // ← field baru
+    }
+
+    if (editId) {
+      await supabase.from('menus').update(payload).eq('id', editId)
+      toast.success('Menu diupdate')
+    } else {
+      await supabase.from('menus').insert(payload)
+      toast.success('Menu ditambahkan')
+    }
+
+    setForm({ name: '', price: '', category: 'Makanan', stock: '0' })
+    setEditId(null)
+    setShowForm(false)
+    fetchMenus()
+  }
+
+  const toggleAvail = async (m: Menu) => {
+    await supabase
+      .from('menus')
+      .update({ is_available: !m.is_available })
+      .eq('id', m.id)
+    toast.success(`${m.name} → ${!m.is_available ? 'Tersedia' : 'Habis'}`)
+    fetchMenus()
+  }
+
+  // UPDATE stok langsung dari tabel tanpa buka form — quick action
+  const updateStock = async (m: Menu, delta: number) => {
+    const newStock = Math.max(0, m.stock + delta) // tidak boleh negatif
+    await supabase
+      .from('menus')
+      .update({ stock: newStock })
+      .eq('id', m.id)
+    // Update state lokal langsung agar tidak perlu fetch ulang
+    setMenus(prev => prev.map(menu =>
+      menu.id === m.id ? { ...menu, stock: newStock } : menu
+    ))
+  }
+
+  const deleteMenu = async (m: Menu) => {
+    if (!confirm(`Hapus "${m.name}"?`)) return
+    await supabase.from('menus').delete().eq('id', m.id)
+    toast.success('Dihapus')
+    fetchMenus()
+  }
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto w-full">
+
+      {/* Tab navigasi */}
+      <div className="flex gap-2 mb-6">
+        {(['menus', 'report'] as Tab[]).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+              tab === t
+                ? 'bg-orange-600 text-white'
+                : 'bg-gray-900 text-gray-400 hover:bg-gray-800'
+            }`}
+          >
+            {t === 'menus' ? '🍜 Kelola Menu' : '📊 Laporan'}
+          </button>
+        ))}
+      </div>
+
+      {/* ═══ TAB MENU ═══ */}
+      {tab === 'menus' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold">Daftar Menu</h2>
+            <button
+              onClick={() => {
+                setEditId(null)
+                setForm({ name: '', price: '', category: 'Makanan', stock: '0' })
+                setShowForm(true)
+              }}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors"
+            >
+              + Tambah Menu
+            </button>
+          </div>
+
+          {/* Form tambah / edit */}
+          {showForm && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4">
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  placeholder="Nama Menu *"
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                    text-sm focus:outline-none focus:border-orange-500"
+                />
+                <input
+                  type="number"
+                  placeholder="Harga *"
+                  value={form.price}
+                  onChange={e => setForm({ ...form, price: e.target.value })}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                    text-sm focus:outline-none focus:border-orange-500"
+                />
+
+                <select
+                  value={form.category}
+                  onChange={e => setForm({ ...form, category: e.target.value })}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm"
+                >
+                  {['Makanan', 'Minuman', 'Snack'].map(c =>
+                    <option key={c}>{c}</option>
+                  )}
+                </select>
+
+                {/* UPDATE: input stok */}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400 shrink-0">Stok awal:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={form.stock}
+                    onChange={e => setForm({ ...form, stock: e.target.value })}
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+                      text-sm focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end mt-3">
+                <button
+                  onClick={() => setShowForm(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors"
+                >
+                  Simpan
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Tabel menu */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
+              <thead className="bg-gray-800 text-gray-400 text-xs uppercase">
+                <tr>
+                  {['Nama', 'Kategori', 'Harga', 'Stok', 'Status', 'Aksi'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {menus.map(m => (
+                  <tr key={m.id} className="hover:bg-gray-800/30 transition-colors">
+                    <td className="px-4 py-3 font-medium text-white">{m.name}</td>
+                    <td className="px-4 py-3 text-gray-400">{m.category}</td>
+                    <td className="px-4 py-3 text-orange-400 font-mono">
+                      {formatRupiah(m.price)}
+                    </td>
+
+                    {/* UPDATE: kolom stok dengan tombol +/- */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateStock(m, -1)}
+                          className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold"
+                        >−</button>
+                        <span className={`w-8 text-center font-bold text-sm ${
+                          m.stock === 0
+                            ? 'text-red-400'
+                            : m.stock <= 5
+                              ? 'text-yellow-400'
+                              : 'text-white'
+                        }`}>
+                          {m.stock}
+                        </span>
+                        <button
+                          onClick={() => updateStock(m, +1)}
+                          className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold"
+                        >+</button>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleAvail(m)}
+                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                          m.is_available
+                            ? 'bg-green-900 text-green-400 hover:bg-green-800'
+                            : 'bg-red-900 text-red-400 hover:bg-red-800'
+                        }`}
+                      >
+                        {m.is_available ? 'Tersedia' : 'Habis'}
+                      </button>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setEditId(m.id)
+                            setForm({
+                              name:     m.name,
+                              price:    String(m.price),
+                              category: m.category,
+                              stock:    String(m.stock), // ← sertakan stok
+                            })
+                            setShowForm(true)
+                          }}
+                          className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => deleteMenu(m)}
+                          className="px-3 py-1 bg-red-900 hover:bg-red-800 rounded text-xs text-red-400 transition-colors"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ TAB LAPORAN ═══ */}
+      {tab === 'report' && (
+        <div>
+          <div className="flex items-center gap-4 mb-6">
+            <h2 className="text-lg font-bold">Laporan Penjualan</h2>
+            <input
+              type="date"
+              value={reportDate}
+              onChange={e => setReportDate(e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm
+                focus:outline-none focus:border-orange-500"
+            />
+          </div>
+
+          {report && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {([
+                ['🧾', `${report.total} pesanan`,      'Total Transaksi'],
+                ['💰', formatRupiah(report.revenue),   'Total Pendapatan'],
+                ['💵', `${report.cash} pesanan`,       'Bayar Cash'],
+                ['📱', `${report.qris} pesanan`,       'Bayar QRIS'],
+              ] as const).map(([ico, val, lbl]) => (
+                <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <div className="text-3xl mb-2">{ico}</div>
+                  <div className="text-xl font-black text-white">{val}</div>
+                  <div className="text-xs text-gray-500 mt-1">{lbl}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/home/kds/layout.tsx">
+// src/app/home/kds/layout.tsx
+// UPDATE: path pindah ke /home/kds
+// Layout KDS tetap fullscreen — HomeLayout sudah handle pengecualian ini
+// (lihat home/layout.tsx — kalau pathname /home/kds, header disembunyikan)
+
+export default function KDSLayout({ children }: { children: React.ReactNode }) {
+  return <div className="fixed inset-0 overflow-hidden">{children}</div>
+}
+</file>
+
+<file path="src/app/home/kds/page.tsx">
+'use client'
+// src/app/home/kds/page.tsx
+// UPDATE dari src/app/kds/page.tsx:
+// - Path pindah ke /home/kds
+// - Tampilkan customer_name dan order_type di header card
+// - Logic realtime tidak berubah
+
+import { useEffect, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { OrderCard } from '@/components/kds/OrderCard'
+import type { Order } from '@/types/database'
+
+export default function KDSPage() {
+  const [orders,    setOrders]    = useState<Order[]>([])
+  const [connected, setConnected] = useState(false)
+
+  // Ambil semua order PENDING yang sudah ada saat halaman dibuka
+  const fetchPending = useCallback(async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: true }) // FIFO — pertama masuk, pertama keluar
+    if (data) setOrders(data as Order[])
+  }, [])
+
+  useEffect(() => {
+    fetchPending()
+
+    // Subscribe ke perubahan tabel orders via WebSocket Supabase Realtime
+    const channel = supabase
+      .channel('kds-realtime')
+
+      // Event INSERT — pesanan baru masuk dari kasir
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+        async (payload) => {
+          // Payload INSERT tidak menyertakan order_items → fetch ulang dengan join
+          const { data } = await supabase
+            .from('orders')
+            .select('*, order_items(*)')
+            .eq('id', payload.new.id)
+            .single()
+          if (data) setOrders(prev => [...prev, data as Order])
+        }
+      )
+
+      // Event UPDATE — status berubah (misal READY atau COMPLETED)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          // Kalau bukan PENDING lagi → hapus dari board KDS
+          if (payload.new.status !== 'PENDING') {
+            setOrders(prev => prev.filter(o => o.id !== payload.new.id))
+          }
+        }
+      )
+
+      // Event UPDATE pada order_items — saat is_ready diupdate dari OrderCard
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' },
+        (payload) => {
+          // Update state is_ready item yang berubah tanpa fetch ulang semua
+          setOrders(prev => prev.map(order => ({
+            ...order,
+            order_items: order.order_items?.map(item =>
+              item.id === payload.new.id
+                ? { ...item, is_ready: payload.new.is_ready }
+                : item
+            ),
+          })))
+        }
+      )
+
+      .subscribe(status => setConnected(status === 'SUBSCRIBED'))
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchPending])
+
+  // Dipanggil dari OrderCard saat semua item sudah diceklis dan klik "Siap Saji"
+  const handleMarkReady = async (orderId: string) => {
+    await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+
+      {/* Header status bar */}
+      <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
+        <h1 className="text-xl font-bold">🍳 DAPUR</h1>
+        <div className="flex items-center gap-4">
+          {/* Jumlah pesanan aktif */}
+          <span className="text-3xl font-black text-orange-400">{orders.length}</span>
+          {/* Indikator koneksi WebSocket */}
+          <div className="flex items-center gap-2">
+            <span className={`w-3 h-3 rounded-full ${
+              connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+            }`}/>
+            <span className="text-xs text-gray-400">
+              {connected ? 'LIVE' : 'Reconnecting...'}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 p-5 overflow-x-auto">
+        {orders.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-700">
+            <span className="text-8xl mb-4">✅</span>
+            <p className="text-2xl font-bold">Semua Pesanan Selesai</p>
+          </div>
+        ) : (
+          <div className="flex gap-4 h-full">
+            {orders.map(order => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                onMarkReady={handleMarkReady}
+              />
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/home/pos/page.tsx">
+'use client'
+// src/app/home/pos/page.tsx
+// UPDATE dari src/app/pos/page.tsx:
+// - Path pindah ke /home/pos
+// - Tampilkan stok pada filter kategori (stok menipis)
+// - Header dihapus (sudah ada di HomeLayout)
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { MenuGrid } from '@/components/pos/MenuGrid'
+import { CartPanel } from '@/components/pos/CartPanel'
+import type { Menu } from '@/types/database'
+
+const CATEGORIES = ['Semua', 'Makanan', 'Minuman', 'Snack']
+
+export default function POSPage() {
+  const [menus,    setMenus]    = useState<Menu[]>([])
+  const [category, setCategory] = useState('Semua')
+  const [search,   setSearch]   = useState('')
+
+  useEffect(() => {
+    const fetchMenus = async () => {
+      const { data } = await supabase.from('menus').select('*').order('name')
+      if (data) setMenus(data as Menu[])
+    }
+    fetchMenus()
+
+    // Subscribe perubahan menu — kalau admin ubah stok/ketersediaan, langsung update di POS
+    const ch = supabase.channel('menus-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [])
+
+  // Filter berdasarkan kategori dan search
+  const filtered = menus.filter(m => {
+    const okCat    = category === 'Semua' || m.category === category
+    const okSearch = m.name.toLowerCase().includes(search.toLowerCase())
+    return okCat && okSearch
+  })
+
+  return (
+    // h-[calc(100vh-49px)]: kurangi tinggi header dari HomeLayout
+    <div className="h-[calc(100vh-49px)] flex bg-gray-950 text-white overflow-hidden">
+
+      {/* Panel Kiri — Menu */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="px-4 pt-4 pb-3 bg-gray-900 border-b border-gray-800">
+          <div className="flex justify-between mb-3">
+            <h2 className="font-bold text-base">Pilih Menu</h2>
+            <input
+              placeholder="Cari menu..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                text-sm w-44 focus:outline-none focus:border-orange-500"
+            />
+          </div>
+          <div className="flex gap-2 overflow-x-auto">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategory(cat)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap shrink-0
+                  ${category === cat
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <MenuGrid menus={filtered} />
+        </div>
+      </div>
+
+      {/* Panel Kanan — Cart */}
+      <div className="w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex flex-col">
+        <CartPanel />
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/home/layout.tsx">
+'use client'
+// src/app/home/layout.tsx
+// UPDATE: layout baru untuk semua halaman /home/*
+//
+// Yang berubah dari sebelumnya:
+// - Ada header dengan navigasi global
+// - Tombol sign out
+// - Link ke /home/pos, /home/kds, /home/admin (admin hanya muncul kalau OWNER)
+//
+// Ini client component karena perlu baca role user dan handle sign out
+
+import { useEffect, useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import type { UserRole } from '@/types/database'
+
+export default function HomeLayout({ children }: { children: React.ReactNode }) {
+  const router    = useRouter()
+  const pathname  = usePathname()
+  const [role, setRole] = useState<UserRole | null>(null)
+
+  // Ambil role user saat komponen pertama kali mount
+  useEffect(() => {
+    const fetchRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (profile) setRole(profile.role as UserRole)
+    }
+    fetchRole()
+  }, [])
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
+
+  // Kalau halaman /home/kds — tampilkan tanpa header (fullscreen untuk dapur)
+  if (pathname.startsWith('/home/kds')) {
+    return <>{children}</>
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+
+      {/* Header global */}
+      <header className="px-5 py-3 bg-gray-900 border-b border-gray-800 flex items-center justify-between shrink-0">
+        <Link href="/home" className="flex items-center gap-2">
+          <span className="text-lg">🍽️</span>
+          <span className="font-bold text-sm text-white">kasir-dapur</span>
+        </Link>
+
+        {/* Navigasi halaman */}
+        <nav className="flex items-center gap-1">
+          {[
+            { href: '/home/pos',   label: '🖥️ POS',    roles: ['OWNER', 'EMPLOYEE'] },
+            { href: '/home/kds',   label: '🍳 Dapur',  roles: ['OWNER', 'EMPLOYEE'] },
+            { href: '/home/admin', label: '⚙️ Admin',  roles: ['OWNER'] },
+          ].filter(item => !role || item.roles.includes(role))
+           .map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                pathname.startsWith(item.href)
+                  ? 'bg-orange-600 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Tombol sign out */}
+        <button
+          onClick={handleSignOut}
+          className="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1"
+        >
+          Keluar
+        </button>
+      </header>
+
+      {/* Konten halaman */}
+      <main className="flex-1 flex flex-col min-h-0">
+        {children}
+      </main>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/home/page.tsx">
+'use client'
+// src/app/home/page.tsx
+// UPDATE: halaman baru — homepage setelah login
+//
+// Menampilkan kartu navigasi ke POS, KDS, dan Admin (kalau OWNER)
+// Juga tampilkan greeting dan ringkasan singkat
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+import type { UserRole } from '@/types/database'
+
+export default function HomePage() {
+  const router = useRouter()
+  const [role,  setRole]  = useState<UserRole | null>(null)
+  const [email, setEmail] = useState('')
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      setEmail(user.email ?? '')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (profile) setRole(profile.role as UserRole)
+    }
+    fetchUser()
+  }, [])
+
+  const cards = [
+    {
+      href:  '/home/pos',
+      icon:  '🖥️',
+      title: 'POS Kasir',
+      desc:  'Input pesanan, kelola cart, checkout ke dapur',
+      color: 'border-orange-800 hover:border-orange-600',
+      roles: ['OWNER', 'EMPLOYEE'] as UserRole[],
+    },
+    {
+      href:  '/home/kds',
+      icon:  '🍳',
+      title: 'Dapur (KDS)',
+      desc:  'Terima pesanan real-time, ceklis per item, tandai siap',
+      color: 'border-green-800 hover:border-green-600',
+      roles: ['OWNER', 'EMPLOYEE'] as UserRole[],
+    },
+    {
+      href:  '/home/admin',
+      icon:  '⚙️',
+      title: 'Admin',
+      desc:  'Kelola menu & stok, laporan penjualan harian',
+      color: 'border-blue-800 hover:border-blue-600',
+      roles: ['OWNER'] as UserRole[],
+    },
+  ]
+
+  const visibleCards = cards.filter(c => !role || c.roles.includes(role))
+
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 p-8">
+      {/* Greeting */}
+      <div className="text-center mb-10">
+        <div className="text-5xl mb-4">🍽️</div>
+        <h1 className="text-2xl font-bold text-white">Selamat datang!</h1>
+        {email && (
+          <p className="text-gray-500 text-sm mt-1">{email}</p>
+        )}
+        {role && (
+          <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
+            role === 'OWNER' ? 'bg-orange-950 text-orange-400' : 'bg-gray-800 text-gray-400'
+          }`}>
+            {role === 'OWNER' ? '👑 Pemilik Toko' : '👤 Pegawai'}
+          </span>
+        )}
+      </div>
+
+      {/* Kartu navigasi */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-2xl">
+        {visibleCards.map(card => (
+          <button
+            key={card.href}
+            onClick={() => router.push(card.href)}
+            className={`bg-gray-900 border-2 rounded-xl p-6 text-left
+              transition-all hover:bg-gray-800 active:scale-95 ${card.color}`}
+          >
+            <div className="text-3xl mb-3">{card.icon}</div>
+            <div className="font-bold text-white text-base mb-1">{card.title}</div>
+            <div className="text-xs text-gray-500 leading-relaxed">{card.desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/kds/layout.tsx">
+// Layout khusus KDS — fixed fullscreen, tidak ada elemen global lain
+export default function KDSLayout({ children }: { children: React.ReactNode }) {
+  return <div className="fixed inset-0 overflow-hidden">{children}</div>
+}
+</file>
+
+<file path="src/app/kds/page.tsx">
+'use client'
+import { useEffect, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { OrderCard } from '@/components/kds/OrderCard'
+import type { Order } from '@/types/database'
+
+export default function KDSPage() {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [connected, setConnected] = useState(false)
+
+  // Ambil semua order PENDING yang sudah ada saat halaman dibuka
+  const fetchPending = useCallback(async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: true }) // FIFO — pertama masuk, pertama keluar
+    if (data) setOrders(data as Order[])
+  }, [])
+
+  useEffect(() => {
+    fetchPending()
+
+    // Subscribe ke semua perubahan di tabel orders via WebSocket
+    const channel = supabase
+      .channel('kds-realtime')
+
+      // Event INSERT — pesanan baru dari kasir
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+        async (payload) => {
+          // Payload INSERT tidak menyertakan order_items, fetch ulang dengan join
+          const { data } = await supabase
+            .from('orders').select('*, order_items(*)')
+            .eq('id', payload.new.id).single()
+          if (data) setOrders(prev => [...prev, data as Order])
+        }
+      )
+
+      // Event UPDATE — status berubah (misalnya READY atau COMPLETED)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          // Kalau tidak PENDING lagi, hapus dari board
+          if (payload.new.status !== 'PENDING') {
+            setOrders(prev => prev.filter(o => o.id !== payload.new.id))
+          }
+        }
+      )
+
+      .subscribe(status => setConnected(status === 'SUBSCRIBED'))
+
+    // Cleanup saat komponen unmount (pindah halaman)
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchPending])
+
+  // Dipanggil dari OrderCard saat dapur klik "Siap Saji"
+  const handleMarkReady = async (orderId: string) => {
+    await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
+    // Tidak perlu update state manual — listener UPDATE di atas yang handle
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+
+      {/* Header status bar */}
+      <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
+        <h1 className="text-xl font-bold">🍳 DAPUR</h1>
+        <div className="flex items-center gap-4">
+          <span className="text-3xl font-black text-orange-400">{orders.length}</span>
+          <div className="flex items-center gap-2">
+            <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
+            <span className="text-xs text-gray-400">{connected ? 'LIVE' : 'Reconnecting...'}</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 p-5 overflow-x-auto">
+        {orders.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-700">
+            <span className="text-8xl mb-4">✅</span>
+            <p className="text-2xl font-bold">Semua Pesanan Selesai</p>
+          </div>
+        ) : (
+          <div className="flex gap-4 h-full">
+            {orders.map(order => (
+              <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/login/page.tsx">
+'use client'
+// src/app/login/page.tsx
+// UPDATE: halaman baru — form login dengan email + password
+//
+// Pakai supabase.auth.signInWithPassword() dari client browser
+// Setelah berhasil, router.push('/home') untuk redirect
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+
+export default function LoginPage() {
+  const router = useRouter()
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (error) {
+      // Terjemahkan pesan error Supabase ke bahasa Indonesia
+      if (error.message.includes('Invalid login credentials')) {
+        setError('Email atau password salah.')
+      } else if (error.message.includes('Email not confirmed')) {
+        setError('Email belum diverifikasi. Cek inbox kamu.')
+      } else {
+        setError(error.message)
+      }
+      setLoading(false)
+      return
+    }
+
+    await supabase.auth.refreshSession()
+
+    // Login berhasil → ke homepage
+    router.push('/home')
+    router.refresh() // Refresh agar middleware dapat sesi terbaru
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        {/* Logo / judul */}
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-3">🍽️</div>
+          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
+          <p className="text-gray-500 text-sm mt-1">Masuk ke akun tokomu</p>
+        </div>
+
+        {/* Form login */}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="email@toko.com"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          {/* Tampilkan error kalau ada */}
+          {error && (
+            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
+              disabled:text-gray-600 text-white font-bold py-3 rounded-lg
+              transition-colors text-sm"
+          >
+            {loading ? 'Masuk...' : 'Masuk'}
+          </button>
+        </form>
+
+        {/* Link ke register */}
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Belum punya akun?{' '}
+          <Link href="/register" className="text-orange-400 hover:text-orange-300 font-semibold">
+            Daftar sekarang
+          </Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/pos/page.tsx">
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { MenuGrid } from '@/components/pos/MenuGrid'
+import { CartPanel } from '@/components/pos/CartPanel'
+import type { Menu } from '@/types/database'
+
+const CATEGORIES = ['Semua', 'Makanan', 'Minuman', 'Snack']
+
+export default function POSPage() {
+  const [menus, setMenus] = useState<Menu[]>([])
+  const [category, setCategory] = useState('Semua')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const fetchMenus = async () => {
+      const { data } = await supabase.from('menus').select('*').order('name')
+      if (data) setMenus(data as Menu[])
+    }
+    fetchMenus()
+
+    // Subscribe perubahan menu — kalau admin toggle ketersediaan, langsung update di POS
+    const ch = supabase.channel('menus-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [])
+
+  // Filter berdasarkan kategori dan search
+  const filtered = menus.filter(m => {
+    const okCat = category === 'Semua' || m.category === category
+    const okSearch = m.name.toLowerCase().includes(search.toLowerCase())
+    return okCat && okSearch
+  })
+
+  return (
+    <div className="h-screen flex bg-gray-950 text-white overflow-hidden">
+
+      {/* Panel Kiri — Menu */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="px-4 pt-4 pb-3 bg-gray-900 border-b border-gray-800">
+          <div className="flex justify-between mb-3">
+            <h1 className="font-bold text-lg">🍽️ kasir-dapur</h1>
+            <input placeholder="Cari menu..." value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-44 focus:outline-none focus:border-orange-500"/>
+          </div>
+          <div className="flex gap-2 overflow-x-auto">
+            {CATEGORIES.map(cat => (
+              <button key={cat} onClick={() => setCategory(cat)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap shrink-0
+                  ${category === cat ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <MenuGrid menus={filtered}/>
+        </div>
+      </div>
+
+      {/* Panel Kanan — Cart */}
+      <div className="w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex flex-col">
+        <CartPanel/>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/register/page.tsx">
+'use client'
+// src/app/register/page.tsx
+// UPDATE: halaman baru — form registrasi akun baru
+//
+// Alur:
+// 1. User isi email + password + pilih role (OWNER atau EMPLOYEE)
+// 2. Supabase kirim email verifikasi
+// 3. User klik link di email → callback route → masuk ke /home
+//
+// Kenapa ada pilihan role di sini?
+// - Toko pertama kali setup: pemilik daftar sebagai OWNER
+// - Pemilik bisa kasih tahu pegawai untuk daftar sebagai EMPLOYEE
+// - Di produksi nanti bisa diubah: hanya OWNER yang bisa invite pegawai
+
+import { useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import type { UserRole } from '@/types/database'
+
+export default function RegisterPage() {
+  const [email,     setEmail]     = useState('')
+  const [password,  setPassword]  = useState('')
+  const [role,      setRole]      = useState<UserRole>('EMPLOYEE')
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState('')
+  const [success,   setSuccess]   = useState(false) // tampilkan pesan "cek email"
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        // Kirim role ke metadata — trigger handle_new_user() di DB akan baca ini
+        // dan set role yang benar di tabel profiles
+        data: { role },
+        // URL yang akan dituju setelah klik link verifikasi di email
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    if (error) {
+      if (error.message.includes('already registered')) {
+        setError('Email ini sudah terdaftar. Coba masuk.')
+      } else if (error.message.includes('Password should be')) {
+        setError('Password minimal 6 karakter.')
+      } else {
+        setError(error.message)
+      }
+      setLoading(false)
+      return
+    }
+
+    // Registrasi berhasil → tampilkan instruksi verifikasi
+    setSuccess(true)
+    setLoading(false)
+  }
+
+  // Tampilan setelah register berhasil
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="text-5xl mb-4">📧</div>
+          <h2 className="text-xl font-bold text-white mb-2">Cek Email Kamu</h2>
+          <p className="text-gray-400 text-sm mb-6">
+            Kami kirim link verifikasi ke <strong className="text-white">{email}</strong>.
+            Klik linknya untuk mengaktifkan akun.
+          </p>
+          <Link href="/login" className="text-orange-400 hover:text-orange-300 text-sm font-semibold">
+            ← Kembali ke halaman masuk
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        {/* Logo / judul */}
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-3">🍽️</div>
+          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
+          <p className="text-gray-500 text-sm mt-1">Buat akun baru</p>
+        </div>
+
+        <form onSubmit={handleRegister} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="email@toko.com"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Min. 6 karakter"
+              required
+              minLength={6}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          {/* Pilih role — pemilik atau pegawai */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Role</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['OWNER',    '👑', 'Pemilik Toko', 'Akses penuh + admin'],
+                ['EMPLOYEE', '👤', 'Pegawai',      'Kasir & KDS saja'],
+              ] as const).map(([val, ico, label, desc]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setRole(val)}
+                  className={`p-3 rounded-lg border text-left transition-colors ${
+                    role === val
+                      ? 'bg-orange-950 border-orange-600'
+                      : 'bg-gray-900 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="text-lg mb-0.5">{ico}</div>
+                  <div className="text-xs font-bold text-white">{label}</div>
+                  <div className="text-xs text-gray-500">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
+              disabled:text-gray-600 text-white font-bold py-3 rounded-lg
+              transition-colors text-sm"
+          >
+            {loading ? 'Mendaftar...' : 'Daftar'}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Sudah punya akun?{' '}
+          <Link href="/login" className="text-orange-400 hover:text-orange-300 font-semibold">
+            Masuk
+          </Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/globals.css">
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-heading);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.3);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.3);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.147 0.004 49.3);
+  --primary: oklch(0.214 0.009 43.1);
+  --primary-foreground: oklch(0.986 0.002 67.8);
+  --secondary: oklch(0.96 0.002 17.2);
+  --secondary-foreground: oklch(0.214 0.009 43.1);
+  --muted: oklch(0.96 0.002 17.2);
+  --muted-foreground: oklch(0.547 0.021 43.1);
+  --accent: oklch(0.96 0.002 17.2);
+  --accent-foreground: oklch(0.214 0.009 43.1);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0.005 34.3);
+  --input: oklch(0.922 0.005 34.3);
+  --ring: oklch(0.714 0.014 41.2);
+  --chart-1: oklch(0.868 0.007 39.5);
+  --chart-2: oklch(0.547 0.021 43.1);
+  --chart-3: oklch(0.438 0.017 39.3);
+  --chart-4: oklch(0.367 0.016 35.7);
+  --chart-5: oklch(0.268 0.011 36.5);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.986 0.002 67.8);
+  --sidebar-foreground: oklch(0.147 0.004 49.3);
+  --sidebar-primary: oklch(0.214 0.009 43.1);
+  --sidebar-primary-foreground: oklch(0.986 0.002 67.8);
+  --sidebar-accent: oklch(0.96 0.002 17.2);
+  --sidebar-accent-foreground: oklch(0.214 0.009 43.1);
+  --sidebar-border: oklch(0.922 0.005 34.3);
+  --sidebar-ring: oklch(0.714 0.014 41.2);
+}
+
+.dark {
+  --background: oklch(0.147 0.004 49.3);
+  --foreground: oklch(0.986 0.002 67.8);
+  --card: oklch(0.214 0.009 43.1);
+  --card-foreground: oklch(0.986 0.002 67.8);
+  --popover: oklch(0.214 0.009 43.1);
+  --popover-foreground: oklch(0.986 0.002 67.8);
+  --primary: oklch(0.922 0.005 34.3);
+  --primary-foreground: oklch(0.214 0.009 43.1);
+  --secondary: oklch(0.268 0.011 36.5);
+  --secondary-foreground: oklch(0.986 0.002 67.8);
+  --muted: oklch(0.268 0.011 36.5);
+  --muted-foreground: oklch(0.714 0.014 41.2);
+  --accent: oklch(0.268 0.011 36.5);
+  --accent-foreground: oklch(0.986 0.002 67.8);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.547 0.021 43.1);
+  --chart-1: oklch(0.868 0.007 39.5);
+  --chart-2: oklch(0.547 0.021 43.1);
+  --chart-3: oklch(0.438 0.017 39.3);
+  --chart-4: oklch(0.367 0.016 35.7);
+  --chart-5: oklch(0.268 0.011 36.5);
+  --sidebar: oklch(0.214 0.009 43.1);
+  --sidebar-foreground: oklch(0.986 0.002 67.8);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.986 0.002 67.8);
+  --sidebar-accent: oklch(0.268 0.011 36.5);
+  --sidebar-accent-foreground: oklch(0.986 0.002 67.8);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.547 0.021 43.1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+</file>
+
+<file path="src/components/pos/MenuGrid.tsx">
+'use client'
+import { MenuCard } from './MenuCard'
+import type { Menu } from '@/types/database'
+
+export function MenuGrid({ menus }: { menus: Menu[] }) {
+  return (
+    <div className="grid grid-cols-3 gap-3 lg:grid-cols-4">
+      {menus.map(m => <MenuCard key={m.id} menu={m}/>)}
+    </div>
+  )
+}
+</file>
+
+<file path="src/components/ui/button.tsx">
+import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-none border border-transparent bg-clip-padding text-xs font-semibold tracking-widest whitespace-nowrap uppercase transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        outline:
+          "border-border bg-transparent hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-input/30",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+        link: "text-primary underline underline-offset-4 hover:underline",
+      },
+      size: {
+        default:
+          "h-10 gap-1.5 px-6 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
+        xs: "h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-9 gap-1 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        lg: "h-11 gap-1.5 px-8 has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5",
+        icon: "size-10",
+        "icon-xs": "size-7 [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-9",
+        "icon-lg": "size-11",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+</file>
+
+<file path="src/lib/supabase-server.ts">
+// src/lib/supabase-server.ts
+// UPDATE: file baru — client Supabase untuk Server Components
+//
+// Kenapa perlu file ini?
+// - supabase.ts yang lama pakai createClient biasa (browser client)
+// - Server Components di Next.js App Router butuh client berbeda
+//   yang bisa baca/set cookies dari request HTTP
+// - @supabase/ssr menyediakan createServerClient untuk keperluan ini
+
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function createServerSupabase() {
+  // cookies() mengembalikan cookie store dari request yang sedang diproses
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        // Baca semua cookie — untuk verifikasi sesi user
+        getAll() {
+          return cookieStore.getAll()
+        },
+        // Set cookie — untuk refresh token otomatis
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // Di Server Components read-only context, set bisa gagal — itu normal
+            // Middleware yang akan handle refresh token
+          }
+        },
+      },
+    }
+  )
+}
+</file>
+
+<file path="src/lib/supabase.ts">
+import { createBrowserClient } from '@supabase/ssr'
+
+// Singleton — satu instance untuk seluruh aplikasi
+// NEXT_PUBLIC_ agar bisa diakses dari browser (client component)
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  // {
+  //   realtime: {
+  //     timeout: 30000, // 30 detik — lebih toleran di jaringan restoran
+  //   },
+  // }
+)
+</file>
+
+<file path="src/lib/utils.ts">
+import { differenceInMinutes } from 'date-fns'
+
+// Format angka ke Rupiah — e.g., 25000 → "Rp 25.000"
+export function formatRupiah(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency', currency: 'IDR', minimumFractionDigits: 0
+  }).format(amount)
+}
+
+// Hitung berapa menit sejak order dibuat
+export function getOrderAge(createdAt: string): number {
+  return differenceInMinutes(new Date(), new Date(createdAt))
+}
+
+// Tentukan warna card KDS berdasarkan umur order
+// Hijau <10 mnt · Kuning 10-20 mnt · Merah >20 mnt + berkedip
+export function getTimerStyle(createdAt: string) {
+  const mins = getOrderAge(createdAt)
+  if (mins < 10) return {
+    bg: 'bg-green-950', border: 'border-green-500',
+    text: 'text-green-400', blink: false, label: `${mins}m`
+  }
+  if (mins < 20) return {
+    bg: 'bg-yellow-950', border: 'border-yellow-500',
+    text: 'text-yellow-400', blink: false, label: `${mins}m`
+  }
+  return {
+    bg: 'bg-red-950', border: 'border-red-500',
+    text: 'text-red-400', blink: true, label: `${mins}m ⚠️`
+  }
+}
+
+// Format jam order untuk tampilan di KDS — e.g., "14:35"
+export function formatTime(createdAt: string): string {
+  return new Date(createdAt).toLocaleTimeString('id-ID', {
+    hour: '2-digit', minute: '2-digit'
+  })
+}
+
+// Helper gabung class names Tailwind (tanpa install clsx)
+export function cn(...classes: (string | boolean | undefined)[]): string {
+  return classes.filter(Boolean).join(' ')
+}
+</file>
+
+<file path="src/middleware.ts">
+// src/middleware.ts
+// UPDATE: file baru — proteksi rute berdasarkan status login + role
+//
+// Cara kerja middleware Next.js:
+// - Dijalankan di Edge Runtime SEBELUM setiap request diteruskan ke halaman
+// - Di sini kita cek apakah user sudah login, lalu redirect sesuai kebutuhan
+//
+// Alur:
+// - Belum login → redirect ke /login (kecuali sudah di halaman publik)
+// - Sudah login + akses /login → redirect ke /home
+// - Sudah login + akses /home/admin + bukan OWNER → redirect ke /home
+
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse }        from 'next/server'
+import type { NextRequest }    from 'next/server'
+
+export async function middleware(request: NextRequest) {
+  // Buat response awal — akan dimodifikasi kalau perlu redirect
+  let supabaseResponse = NextResponse.next({ request })
+
+  // Buat Supabase client yang bisa baca/set cookie dari request
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          // Update cookie di request & response agar sesi tetap fresh
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          )
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // Ambil user dari sesi — JANGAN pakai getSession() karena bisa di-spoof
+  // getUser() verifikasi langsung ke Supabase Auth server
+  const { data: { user } } = await supabase.auth.getUser()
+  const { pathname } = request.nextUrl
+
+  // Halaman publik — tidak perlu login
+  const isPublicPath = pathname.startsWith('/login')
+    || pathname.startsWith('/register')
+    || pathname.startsWith('/auth/callback')
+
+  if (isPublicPath) {
+    // Kalau sudah login dan coba akses login/register → langsung ke /home
+    if (user && !pathname.startsWith('/auth/callback')) {
+      return NextResponse.redirect(new URL('/home', request.url))
+    }
+    return supabaseResponse
+  }
+
+  // Belum login dan bukan halaman publik → ke login
+  if (!user) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  // Proteksi halaman admin — hanya OWNER yang boleh masuk
+  if (pathname.startsWith('/home/admin')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'OWNER') {
+      // Bukan owner → redirect ke homepage biasa
+      return NextResponse.redirect(new URL('/home', request.url))
+    }
+  }
+
+  return supabaseResponse
+}
+
+// Matcher: jalankan middleware di semua route kecuali file statis
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}
+</file>
+
+<file path="AGENTS.md">
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+</file>
+
+<file path="CLAUDE.md">
+@AGENTS.md
+</file>
+
+<file path="components.json">
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-sera",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/app/globals.css",
+    "baseColor": "taupe",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "rtl": false,
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "menuColor": "default",
+  "menuAccent": "subtle",
+  "registries": {}
+}
+</file>
+
+<file path="eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="package.json">
+{
+  "name": "kasir-dapur",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.104.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^1.8.0",
+    "next": "16.2.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.3.1",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="src/app/layout.tsx">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono, Noto_Sans, Playfair_Display } from "next/font/google";
+import "./globals.css";
+import { cn } from "@/lib/utils";
+import { Toaster } from "sonner";
+
+const playfairDisplayHeading = Playfair_Display({subsets:['latin'],variable:'--font-heading'});
+
+const notoSans = Noto_Sans({subsets:['latin'],variable:'--font-sans'});
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "kasir-dapur",
+  description: "POS & Kitchen Display System",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", notoSans.variable, playfairDisplayHeading.variable)}
+    >
+      <body className="min-h-full flex flex-col">{children}
+        <Toaster richColors position="top-right" />
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="src/app/page.tsx">
+// src/app/page.tsx
+// UPDATE: ganti halaman default Next.js → redirect ke /home atau /login
+//
+// Ini Server Component — bisa langsung akses sesi tanpa useEffect
+// Middleware sebenarnya sudah handle redirect, tapi ini sebagai fallback
+
+import { redirect } from 'next/navigation'
+import { createServerSupabase } from '@/lib/supabase-server'
+
+export default async function RootPage() {
+  const supabase = await createServerSupabase()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Sudah login → ke homepage
+  if (user) redirect('/home')
+
+  // Belum login → ke halaman login
+  redirect('/login')
+}
+</file>
+
+<file path="src/components/kds/OrderCard.tsx">
+'use client'
+// src/components/kds/OrderCard.tsx
+// UPDATE dari sebelumnya:
+// - Tambah ceklis per item — dapur klik ✓ per menu satu-satu
+// - Tombol "SIAP SAJI" hanya aktif kalau SEMUA item sudah diceklis
+// - Saat item diceklis → update is_ready = true di DB (via supabase)
+// - Tampilkan customer_name dan order_type (DINE_IN/TAKEAWAY)
+
+import { useEffect, useState } from 'react'
+import { getTimerStyle, formatTime, cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
+import type { Order } from '@/types/database'
+
+interface Props {
+  order:       Order
+  onMarkReady: (id: string) => Promise<void>
+}
+
+export function OrderCard({ order, onMarkReady }: Props) {
+  // Re-render tiap 30 detik agar warna timer otomatis update
+  const [, setTick]  = useState(0)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 30_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const style = getTimerStyle(order.created_at)
+  const items = order.order_items ?? []
+
+  // Semua item harus is_ready = true sebelum bisa klik "Siap Saji"
+  const allReady   = items.length > 0 && items.every(i => i.is_ready)
+  const readyCount = items.filter(i => i.is_ready).length
+
+  // Ceklis satu item → update is_ready di DB
+  // Supabase Realtime di KDS page akan subscribe perubahan ini
+  // sehingga semua KDS (kalau ada lebih dari satu layar) sync otomatis
+  const handleToggleItem = async (itemId: string, currentReady: boolean) => {
+    await supabase
+      .from('order_items')
+      .update({ is_ready: !currentReady })
+      .eq('id', itemId)
+    // Tidak perlu update state lokal — listener di kds/page.tsx yang handle
+  }
+
+  const handleReady = async () => {
+    if (!allReady || loading) return
+    if (!confirm(`Tandai ${order.order_number} (Meja ${order.table_number}) SIAP?`)) return
+    setLoading(true)
+    await onMarkReady(order.id)
+    setLoading(false)
+  }
+
+  return (
+    <div className={cn(
+      'flex flex-col rounded-xl border-2 p-5 min-w-[290px] max-w-[330px] shrink-0',
+      style.bg, style.border, style.blink && 'animate-pulse'
+    )}>
+
+      {/* Header — nomor order, meja, nama pembeli, timer */}
+      <div className="flex justify-between mb-3">
+        <div>
+          <div className="text-4xl font-black">{order.order_number}</div>
+          <div className="text-xl font-bold text-gray-300">Meja {order.table_number}</div>
+          {/* Nama pembeli — tampilkan kalau ada */}
+          {order.customer_name && (
+            <div className="text-sm text-gray-400 mt-0.5">👤 {order.customer_name}</div>
+          )}
+        </div>
+        <div className="text-right shrink-0 ml-2">
+          <div className={cn('text-2xl font-black', style.text)}>{style.label}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{formatTime(order.created_at)}</div>
+          {/* Badge tipe order — DINE_IN atau TAKEAWAY */}
+          <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded-full ${
+            order.order_type === 'TAKEAWAY'
+              ? 'bg-blue-900 text-blue-400'
+              : 'bg-gray-700 text-gray-400'
+          }`}>
+            {order.order_type === 'TAKEAWAY' ? '🥡 Bungkus' : '🪑 Di Sini'}
+          </div>
+        </div>
+      </div>
+
+      {/* Progress ceklis — "2/3 selesai" */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-gray-500">Progress masak</span>
+        <span className={`text-xs font-bold ${allReady ? 'text-green-400' : 'text-gray-400'}`}>
+          {readyCount}/{items.length}
+        </span>
+      </div>
+
+      {/* Progress bar visual */}
+      <div className="h-1.5 bg-gray-800 rounded-full mb-4 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${
+            allReady ? 'bg-green-500' : 'bg-orange-500'
+          }`}
+          style={{ width: items.length > 0 ? `${(readyCount / items.length) * 100}%` : '0%' }}
+        />
+      </div>
+
+      <div className="h-px bg-gray-700 mb-4"/>
+
+      {/* Daftar item dengan ceklis per item */}
+      <div className="flex-1 space-y-2 mb-5">
+        {items.map(item => (
+          <button
+            key={item.id}
+            onClick={() => handleToggleItem(item.id, item.is_ready)}
+            className={cn(
+              'w-full flex gap-3 items-start p-2 rounded-lg text-left transition-all',
+              item.is_ready
+                ? 'bg-green-950/50 opacity-60'
+                : 'bg-gray-800/40 hover:bg-gray-700/40 active:scale-98'
+            )}
+          >
+            {/* Checkbox visual */}
+            <div className={cn(
+              'w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all',
+              item.is_ready
+                ? 'bg-green-500 border-green-500'
+                : 'border-gray-600'
+            )}>
+              {item.is_ready && <span className="text-white text-xs font-black">✓</span>}
+            </div>
+
+            <div className="flex-1">
+              <div className={cn(
+                'text-lg font-bold transition-all',
+                item.is_ready ? 'line-through text-gray-600' : 'text-white'
+              )}>
+                {item.quantity}× {item.menu_name}
+              </div>
+              {/* Catatan item — kalau ada */}
+              {item.notes && (
+                <div className="text-sm text-yellow-400 italic mt-0.5">⚠️ {item.notes}</div>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Tombol SIAP SAJI — disable kalau belum semua item diceklis */}
+      <button
+        onClick={handleReady}
+        disabled={!allReady || loading}
+        className={cn(
+          'w-full py-4 rounded-xl text-lg font-black uppercase tracking-wider',
+          'transition-all active:scale-95',
+          allReady && !loading
+            ? 'bg-green-500 hover:bg-green-400 text-white'
+            : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+        )}
+      >
+        {loading
+          ? '...'
+          : allReady
+            ? '✓ SIAP SAJI'
+            : `Ceklis dulu (${readyCount}/${items.length})`
+        }
+      </button>
+    </div>
+  )
+}
+</file>
+
+<file path="src/components/pos/CartPanel.tsx">
+'use client'
+// src/components/pos/CartPanel.tsx
+// UPDATE dari sebelumnya:
+// - Tambah input nama pembeli (customer_name)
+// - Tambah pilihan Makan di Tempat vs Bungkus (order_type)
+// - Tambah tombol untuk input catatan per item (notes)
+// - Update handleCheckout untuk kirim field baru ke DB
+
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { useCartStore } from '@/store/cart.store'
+import { supabase } from '@/lib/supabase'
+import { formatRupiah } from '@/lib/utils'
+import type { OrderType } from '@/types/database'
+
+export function CartPanel() {
+  const {
+    items, tableNumber, paymentMethod, customerName, orderType,
+    decrementItem, removeItem, setTableNumber, setPaymentMethod,
+    setCustomerName, setOrderType, setItemNotes,
+    clearCart, getTotal, isReadyToCheckout,
+  } = useCartStore()
+
+  const [submitting, setSubmitting] = useState(false)
+  // Track item mana yang sedang dibuka input notesnya
+  const [editNotesId, setEditNotesId] = useState<string | null>(null)
+
+  const handleCheckout = async () => {
+    if (!isReadyToCheckout() || submitting) return
+    setSubmitting(true)
+
+    try {
+      // Step 1: INSERT ke tabel orders — sekarang dengan customer_name & order_type
+      const { data: order, error: e1 } = await supabase
+        .from('orders')
+        .insert({
+          table_number:   tableNumber,
+          customer_name:  customerName,   // ← field baru
+          order_type:     orderType,       // ← field baru
+          total_price:    getTotal(),
+          payment_method: paymentMethod,
+        })
+        .select()
+        .single()
+      if (e1) throw e1
+
+      // Step 2: INSERT semua item sekaligus
+      const { error: e2 } = await supabase.from('order_items').insert(
+        items.map(i => ({
+          order_id:   order.id,
+          menu_id:    i.menuId,
+          menu_name:  i.menuName,
+          unit_price: i.unitPrice,
+          quantity:   i.quantity,
+          notes:      i.notes,   // catatan per item
+        }))
+      )
+      if (e2) throw e2
+
+      // Step 3: Berhasil — bersihkan cart
+      clearCart()
+      toast.success(`✅ ${order.order_number} dikirim ke dapur!`, {
+        description: `${customerName || 'Tanpa nama'} · Meja ${tableNumber} · ${formatRupiah(getTotal())} via ${paymentMethod}`,
+      })
+    } catch {
+      toast.error('❌ Gagal submit — cek koneksi internet')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header cart */}
+      <div className="px-4 py-3 border-b border-gray-800 flex justify-between items-center">
+        <h2 className="font-bold text-sm">🛒 Pesanan</h2>
+        {items.length > 0 && (
+          <button onClick={clearCart} className="text-xs text-red-400 hover:text-red-300">
+            Kosongkan
+          </button>
+        )}
+      </div>
+
+      {/* List item di cart */}
+      <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
+        {items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-600 p-4">
+            <span className="text-5xl mb-3">🛒</span>
+            <p className="text-sm text-center">Tap menu untuk tambah pesanan</p>
+          </div>
+        ) : (
+          items.map(item => (
+            <div key={item.menuId} className="px-4 py-3">
+              <div className="flex justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{item.menuName}</p>
+                  <p className="text-xs text-orange-400">{formatRupiah(item.unitPrice)}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => decrementItem(item.menuId)}
+                    className="w-7 h-7 rounded bg-gray-700 text-white font-bold text-sm"
+                  >−</button>
+                  <span className="w-5 text-center font-bold text-sm">{item.quantity}</span>
+                  <button
+                    onClick={() => useCartStore.getState().setQuantity(item.menuId, item.quantity + 1)}
+                    className="w-7 h-7 rounded bg-gray-700 text-white font-bold text-sm"
+                  >+</button>
+                  <button
+                    onClick={() => removeItem(item.menuId)}
+                    className="w-7 h-7 rounded bg-gray-800 text-red-400 text-xs"
+                  >✕</button>
+                </div>
+              </div>
+
+              {/* Tombol untuk tambah/edit catatan item */}
+              {editNotesId === item.menuId ? (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    autoFocus
+                    placeholder="Catatan (tidak pedas, dll...)"
+                    value={item.notes}
+                    onChange={e => setItemNotes(item.menuId, e.target.value)}
+                    onBlur={() => setEditNotesId(null)}
+                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1.5
+                      text-xs text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditNotesId(item.menuId)}
+                  className="mt-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                >
+                  {item.notes ? `📝 ${item.notes}` : '+ Catatan'}
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Bagian bawah — input info order + tombol checkout */}
+      <div className="border-t border-gray-800 px-4 py-4 space-y-3">
+        {/* Total harga */}
+        <div className="flex justify-between items-baseline">
+          <span className="text-gray-400 text-sm">Total</span>
+          <span className="text-xl font-black">{formatRupiah(getTotal())}</span>
+        </div>
+
+        {/* Nama pembeli — opsional tapi berguna untuk KDS */}
+        <input
+          placeholder="Nama pembeli (opsional)"
+          value={customerName}
+          onChange={e => setCustomerName(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+            text-sm focus:outline-none focus:border-orange-500"
+        />
+
+        {/* Nomor meja — wajib */}
+        <input
+          placeholder="Nomor Meja *"
+          value={tableNumber}
+          onChange={e => setTableNumber(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
+            text-sm focus:outline-none focus:border-orange-500"
+        />
+
+        {/* Makan di tempat vs Bungkus */}
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            ['DINE_IN',  '🪑 Makan di Sini'],
+            ['TAKEAWAY', '🥡 Bungkus'],
+          ] as [OrderType, string][]).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setOrderType(val)}
+              className={`py-2.5 rounded-lg text-xs font-bold transition-colors ${
+                orderType === val
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Metode pembayaran */}
+        <div className="grid grid-cols-2 gap-2">
+          {(['CASH', 'QRIS'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setPaymentMethod(m)}
+              className={`py-2.5 rounded-lg text-sm font-bold transition-colors ${
+                paymentMethod === m
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              {m === 'CASH' ? '💵 Cash' : '📱 QRIS'}
+            </button>
+          ))}
+        </div>
+
+        {/* Tombol checkout */}
+        <button
+          onClick={handleCheckout}
+          disabled={!isReadyToCheckout() || submitting}
+          className={`w-full py-4 rounded-xl text-base font-black uppercase tracking-wider
+            transition-colors ${
+              isReadyToCheckout() && !submitting
+                ? 'bg-orange-600 hover:bg-orange-500 text-white'
+                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+        >
+          {submitting ? 'Memproses...' : '✓ Bayar & Kirim ke Dapur'}
+        </button>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/components/pos/MenuCard.tsx">
+'use client'
+// src/components/pos/MenuCard.tsx
+// UPDATE dari sebelumnya:
+// - Hapus tampilan gambar (image_url sudah tidak ada di DB)
+// - Tambah badge stok — hijau kalau banyak, kuning kalau ≤5, merah kalau 0
+// - Kalau stok = 0, otomatis disable meski is_available = true
+
+import { useCartStore } from '@/store/cart.store'
+import { formatRupiah } from '@/lib/utils'
+import type { Menu } from '@/types/database'
+
+export function MenuCard({ menu }: { menu: Menu }) {
+  const { addItem, items } = useCartStore()
+  const cartQty  = items.find(i => i.menuId === menu.id)?.quantity ?? 0
+
+  // Menu tidak bisa dipesan kalau habis stok ATAU is_available = false
+  const outOfStock = menu.stock <= 0
+  const disabled   = !menu.is_available || outOfStock
+
+  // Warna badge stok
+  const stockBadge = outOfStock
+    ? 'bg-red-900 text-red-400'
+    : menu.stock <= 5
+      ? 'bg-yellow-900 text-yellow-400'
+      : 'bg-green-900 text-green-400'
+
+  return (
+    <button
+      onClick={() => !disabled && addItem(menu)}
+      disabled={disabled}
+      className={`relative flex flex-col rounded-xl border text-left
+        transition-all active:scale-95 overflow-hidden
+        ${disabled
+          ? 'bg-gray-900 border-gray-800 opacity-50 cursor-not-allowed'
+          : 'bg-gray-800 border-gray-700 hover:border-orange-500 cursor-pointer'}`}
+    >
+      {/* Area ikon (ganti gambar dengan emoji/warna) */}
+      <div className="w-full aspect-square bg-gray-700 flex items-center justify-center relative">
+        <span className="text-4xl text-gray-500">🍽️</span>
+
+        {/* Overlay "HABIS" kalau tidak tersedia */}
+        {disabled && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <span className="text-xs font-bold text-red-400 bg-red-950 px-2 py-1 rounded">
+              {outOfStock ? 'STOK HABIS' : 'TIDAK TERSEDIA'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="p-2.5 flex flex-col gap-1">
+        <p className="text-sm font-semibold text-white line-clamp-2">{menu.name}</p>
+        <p className="text-sm font-bold text-orange-400">{formatRupiah(menu.price)}</p>
+
+        {/* Badge stok */}
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${stockBadge}`}>
+          Stok: {menu.stock}
+        </span>
+      </div>
+
+      {/* Badge jumlah di cart */}
+      {cartQty > 0 && (
+        <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-orange-500
+          flex items-center justify-center text-xs font-black text-white">
+          {cartQty}
+        </div>
+      )}
+    </button>
+  )
+}
+</file>
+
+<file path="src/store/cart.store.ts">
+// src/store/cart.store.ts
+// UPDATE dari sebelumnya:
+// - Tambah customerName dan orderType ke state
+// - Tambah setCustomerName, setOrderType, setItemNotes
+// - clearCart sekarang juga reset customerName & orderType
+
+import { create } from 'zustand'
+import type { CartItem, Menu, PaymentMethod, OrderType } from '@/types/database'
+
+interface CartStore {
+  items:          CartItem[]
+  tableNumber:    string
+  customerName:   string      // ← baru
+  paymentMethod:  PaymentMethod
+  orderType:      OrderType   // ← baru
+
+  addItem:         (menu: Menu) => void
+  decrementItem:   (menuId: string) => void
+  removeItem:      (menuId: string) => void
+  setQuantity:     (menuId: string, qty: number) => void
+  setItemNotes:    (menuId: string, notes: string) => void  // ← baru
+  clearCart:       () => void
+  setTableNumber:  (t: string) => void
+  setCustomerName: (name: string) => void                   // ← baru
+  setPaymentMethod:(m: PaymentMethod) => void
+  setOrderType:    (t: OrderType) => void                   // ← baru
+  getTotal:        () => number
+  isReadyToCheckout: () => boolean
+}
+
+export const useCartStore = create<CartStore>()((set, get) => ({
+  items:         [],
+  tableNumber:   '',
+  customerName:  '',        // ← default kosong (opsional)
+  paymentMethod: 'CASH',
+  orderType:     'DINE_IN', // ← default makan di tempat
+
+  // Tambah ke cart. Kalau sudah ada → naikkan qty saja
+  addItem: (menu) => set((state) => {
+    const existing = state.items.find(i => i.menuId === menu.id)
+    if (existing) {
+      return {
+        items: state.items.map(i =>
+          i.menuId === menu.id ? { ...i, quantity: i.quantity + 1 } : i
+        ),
+      }
+    }
+    return {
+      items: [...state.items, {
+        menuId:    menu.id,
+        menuName:  menu.name,
+        unitPrice: menu.price,
+        quantity:  1,
+        notes:     '',
+      }],
+    }
+  }),
+
+  // Kurangi qty 1. Kalau sudah 1 → hapus
+  decrementItem: (menuId) => set((state) => {
+    const item = state.items.find(i => i.menuId === menuId)
+    if (!item) return state
+    if (item.quantity <= 1) return { items: state.items.filter(i => i.menuId !== menuId) }
+    return { items: state.items.map(i =>
+      i.menuId === menuId ? { ...i, quantity: i.quantity - 1 } : i
+    )}
+  }),
+
+  removeItem: (menuId) => set(state => ({
+    items: state.items.filter(i => i.menuId !== menuId),
+  })),
+
+  setQuantity: (menuId, qty) => {
+    if (qty <= 0) { get().removeItem(menuId); return }
+    set(state => ({
+      items: state.items.map(i =>
+        i.menuId === menuId ? { ...i, quantity: qty } : i
+      ),
+    }))
+  },
+
+  // UPDATE: set catatan untuk satu item tertentu
+  setItemNotes: (menuId, notes) => set(state => ({
+    items: state.items.map(i =>
+      i.menuId === menuId ? { ...i, notes } : i
+    ),
+  })),
+
+  // Reset semua ke default termasuk field baru
+  clearCart: () => set({
+    items:         [],
+    tableNumber:   '',
+    customerName:  '',
+    paymentMethod: 'CASH',
+    orderType:     'DINE_IN',
+  }),
+
+  setTableNumber:   (tableNumber)   => set({ tableNumber }),
+  setCustomerName:  (customerName)  => set({ customerName }),    // ← baru
+  setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+  setOrderType:     (orderType)     => set({ orderType }),       // ← baru
+
+  getTotal: () => get().items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
+
+  // Cart valid untuk checkout: ada item + nomor meja diisi
+  // Nama pembeli sengaja tidak diwajibkan (opsional)
+  isReadyToCheckout: () =>
+    get().items.length > 0 && get().tableNumber.trim().length > 0,
+}))
+</file>
+
+<file path="src/types/database.ts">
+// src/types/database.ts
+// UPDATE: tambah OrderType, stock di Menu, customer_name + order_type di Order,
+//         is_ready di OrderItem, Role untuk profile user
+
+export type OrderStatus    = 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED'
+export type PaymentMethod  = 'CASH' | 'QRIS'
+export type OrderType      = 'DINE_IN' | 'TAKEAWAY'  // ← baru
+export type UserRole       = 'OWNER' | 'EMPLOYEE'    // ← baru
+
+// Profile user — tersimpan di tabel profiles, terhubung ke auth.users
+export interface Profile {
+  id:         string
+  role:       UserRole
+  created_at: string
+}
+
+export interface Menu {
+  id:           string
+  name:         string
+  price:        number
+  category:     string
+  stock:        number      // ← baru: jumlah stok tersedia
+  is_available: boolean
+  created_at:   string
+  // image_url dihapus — hemat database
+}
+
+export interface OrderItem {
+  id:       string
+  order_id: string
+  menu_id:  string | null
+  menu_name:  string   // snapshot nama saat pesan
+  unit_price: number   // snapshot harga saat pesan
+  quantity:   number
+  notes:      string
+  is_ready:   boolean  // ← baru: ceklis per item di KDS
+}
+
+export interface Order {
+  id:             string
+  order_number:   string
+  table_number:   string
+  customer_name:  string       // ← baru: nama pembeli
+  order_type:     OrderType    // ← baru: DINE_IN atau TAKEAWAY
+  total_price:    number
+  payment_method: PaymentMethod
+  status:         OrderStatus
+  created_at:     string
+  updated_at:     string
+  order_items?:   OrderItem[]  // tersedia kalau di-join saat fetch
+}
+
+// CartItem — hanya ada di memory (Zustand), tidak disimpan ke DB
+export interface CartItem {
+  menuId:     string
+  menuName:   string
+  unitPrice:  number
+  quantity:   number
+  notes:      string  // catatan per item (sudah ada sebelumnya, sekarang bisa diinput)
+}
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+.env.local
+
+next-features.md
+</file>
+
+</files>

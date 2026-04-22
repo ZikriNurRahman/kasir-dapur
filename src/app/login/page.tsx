@@ -37,6 +37,8 @@ export default function LoginPage() {
       return
     }
 
+    await supabase.auth.refreshSession()
+
     // Login berhasil → ke homepage
     router.push('/home')
     router.refresh() // Refresh agar middleware dapat sesi terbaru
