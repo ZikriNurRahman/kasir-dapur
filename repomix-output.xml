@@ -50,6 +50,11 @@ src/
   app/
     admin/
       page.tsx
+    api/
+      midtrans/
+        webhook/
+          route.ts
+        route.ts
     auth/
       callback/
         route.ts
@@ -83,8 +88,11 @@ src/
       CartPanel.tsx
       MenuCard.tsx
       MenuGrid.tsx
+      ReceiptModal.tsx
     ui/
       button.tsx
+  hooks/
+    useCurrentUser.ts
   lib/
     supabase-server.ts
     supabase.ts
@@ -108,6 +116,451 @@ tsconfig.json
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/app/api/midtrans/webhook/route.ts">
+// src/app/api/midtrans/webhook/route.ts
+// Webhook dari Midtrans — dipanggil saat status pembayaran berubah
+//
+// Setup di Midtrans Dashboard:
+// Settings → Configuration → Payment Notification URL:
+// https://nama-toko.vercel.app/api/midtrans/webhook
+//
+// Untuk testing lokal: gunakan ngrok atau Midtrans Simulator
+
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
+
+// Gunakan service role key untuk webhook — agar bisa update tanpa RLS block
+// NEXT_PUBLIC_SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY di .env.local
+function getAdminSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!, // Service role — jangan di-expose ke client!
+  )
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+
+    // Verifikasi signature Midtrans
+    // Format: sha512(order_id + status_code + gross_amount + server_key)
+    const serverKey = process.env.MIDTRANS_SERVER_KEY!
+    const signatureKey = body.order_id + body.status_code + body.gross_amount + serverKey
+    const expectedSig  = createHash('sha512').update(signatureKey).digest('hex')
+
+    if (body.signature_key !== expectedSig) {
+      console.error('Invalid Midtrans signature')
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+
+    const { order_id, transaction_status, fraud_status } = body
+
+    // Tentukan apakah pembayaran berhasil
+    // - transaction_status: 'settlement' atau 'capture' = berhasil
+    // - fraud_status: 'accept' = tidak ada fraud (hanya ada di kartu kredit)
+    const isSuccess =
+      transaction_status === 'settlement' ||
+      (transaction_status === 'capture' && fraud_status === 'accept')
+
+    const isFailed =
+      transaction_status === 'cancel' ||
+      transaction_status === 'deny' ||
+      transaction_status === 'expire'
+
+    const supabase = getAdminSupabase()
+
+    if (isSuccess) {
+      // Pembayaran berhasil → update order dari PENDING_PAYMENT ke PENDING
+      // KDS akan menerima order ini via Realtime
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'PENDING' })
+        .eq('order_number', order_id)          // order_id Midtrans = order_number kita
+        .eq('status', 'PENDING_PAYMENT')       // safety check
+
+      if (error) console.error('Supabase update error:', error)
+      else console.log(`Order ${order_id} berhasil dibayar → PENDING`)
+
+    } else if (isFailed) {
+      // Pembayaran gagal/dibatalkan → update ke CANCELLED
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'CANCELLED' })
+        .eq('order_number', order_id)
+        .eq('status', 'PENDING_PAYMENT')
+
+      if (error) console.error('Supabase update error:', error)
+      else console.log(`Order ${order_id} dibatalkan`)
+    }
+
+    // Midtrans mengharapkan HTTP 200 sebagai tanda webhook diterima
+    return NextResponse.json({ status: 'ok' })
+
+  } catch (error) {
+    console.error('Webhook error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+</file>
+
+<file path="src/app/api/midtrans/route.ts">
+// src/app/api/midtrans/route.ts
+// API route untuk generate QRIS Midtrans
+//
+// Kenapa server-side?
+// MIDTRANS_SERVER_KEY tidak boleh expose ke browser.
+// Server-side route ini yang call Midtrans API dengan server key.
+//
+// Midtrans Core API QRIS:
+// Sandbox URL: https://api.sandbox.midtrans.com/v2/charge
+// Production:  https://api.midtrans.com/v2/charge
+//
+// Env yang dibutuhkan di .env.local:
+// MIDTRANS_SERVER_KEY=Mid-server-xxxxx
+// MIDTRANS_IS_PRODUCTION=false
+
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export async function POST(request: NextRequest) {
+  try {
+    const { orderId, grossAmount, dbOrderId } = await request.json()
+
+    const serverKey = process.env.MIDTRANS_SERVER_KEY
+    if (!serverKey) {
+      return NextResponse.json(
+        { error: 'MIDTRANS_SERVER_KEY belum di-set di environment variables' },
+        { status: 500 }
+      )
+    }
+
+    const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
+    const baseUrl      = isProduction
+      ? 'https://api.midtrans.com'
+      : 'https://api.sandbox.midtrans.com'
+
+    // Encode server key ke base64 untuk header Authorization
+    // Format: "Basic " + base64(serverKey + ":")
+    const authHeader = 'Basic ' + Buffer.from(serverKey + ':').toString('base64')
+
+    // Buat charge QRIS ke Midtrans Core API
+    const response = await fetch(`${baseUrl}/v2/charge`, {
+      method:  'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+      },
+      body: JSON.stringify({
+        payment_type: 'qris',
+        transaction_details: {
+          order_id:     orderId,     // nomor order dari kasir-dapur
+          gross_amount: grossAmount, // total dalam Rupiah (integer)
+        },
+        // Tambahan metadata — opsional tapi berguna untuk rekonsiliasi
+        custom_field1: dbOrderId,   // id order di database kita
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      console.error('Midtrans error:', data)
+      return NextResponse.json(
+        { error: data.status_message ?? 'Midtrans error' },
+        { status: 400 }
+      )
+    }
+
+    // Midtrans response untuk QRIS:
+    // data.qr_string — string yang dipakai untuk generate QR code
+    // data.transaction_id — ID transaksi Midtrans
+    // data.transaction_status — harusnya "pending"
+
+    return NextResponse.json({
+      qrString:      data.qr_string,
+      transactionId: data.transaction_id,
+      orderId:       orderId,
+    })
+
+  } catch (error) {
+    console.error('Midtrans API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+</file>
+
+<file path="src/components/pos/ReceiptModal.tsx">
+'use client'
+// src/components/pos/ReceiptModal.tsx
+// Komponen struk yang bisa dicetak
+// Gunakan window.print() dengan CSS @media print untuk tampilkan hanya struk
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { formatRupiah } from '@/lib/utils'
+import type { Order, StoreSettings } from '@/types/database'
+
+interface Props {
+  order:       Order
+  cashReceived?: number // kalau bayar cash, berapa uang yang diterima
+  onClose:     () => void
+}
+
+export function ReceiptModal({ order, cashReceived, onClose }: Props) {
+  const [settings, setSettings] = useState<StoreSettings | null>(null)
+  const items = order.order_items ?? []
+  const change = cashReceived ? cashReceived - order.total_price : 0
+
+  useEffect(() => {
+    supabase
+      .from('store_settings')
+      .select('*')
+      .eq('id', 1)
+      .single()
+      .then(({ data }) => {
+        if (data) setSettings(data as StoreSettings)
+      })
+  }, [])
+
+  const handlePrint = () => window.print()
+
+  // Format tanggal + waktu — e.g. "22 Apr 2026, 14:35"
+  const formatDateTime = (iso: string) => {
+    return new Date(iso).toLocaleString('id-ID', {
+      day:    '2-digit',
+      month:  'short',
+      year:   'numeric',
+      hour:   '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  return (
+    <>
+      {/* CSS hanya untuk mode print — sembunyikan semua kecuali struk */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #receipt-content,
+          #receipt-content * { visibility: visible !important; }
+          #receipt-content {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 80mm !important;   /* ukuran kertas struk standar */
+            padding: 4mm !important;
+            font-size: 11px !important;
+          }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+      {/* Overlay background */}
+      <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 no-print">
+        {/* Modal container */}
+        <div className="bg-white text-black rounded-xl w-full max-w-xs overflow-y-auto max-h-[90vh]">
+
+          {/* Konten struk — ini yang akan dicetak */}
+          <div id="receipt-content" className="p-5 font-mono text-xs">
+
+            {/* Header toko */}
+            <div className="text-center mb-3">
+              <div className="text-base font-black">
+                {settings?.store_name ?? 'kasir-dapur'}
+              </div>
+              {settings?.store_address && (
+                <div className="text-xs text-gray-600 mt-0.5">{settings.store_address}</div>
+              )}
+              {settings?.store_social && (
+                <div className="text-xs text-gray-500">{settings.store_social}</div>
+              )}
+            </div>
+
+            {/* Garis pemisah */}
+            <div className="border-t border-dashed border-gray-400 my-2"/>
+
+            {/* Info order */}
+            <div className="space-y-0.5 text-xs mb-2">
+              <div className="flex justify-between">
+                <span className="text-gray-500">No. Order</span>
+                <span className="font-bold">{order.order_number}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Tanggal</span>
+                <span>{formatDateTime(order.created_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Jenis</span>
+                <span>{order.order_type === 'DINE_IN' ? 'Makan di Sini' : 'Bungkus'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Meja</span>
+                <span>{order.order_type === 'TAKEAWAY' ? '-' : order.table_number}</span>
+              </div>
+              {order.customer_name && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Pelanggan</span>
+                  <span>{order.customer_name}</span>
+                </div>
+              )}
+              {order.served_by_name && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Dilayani</span>
+                  <span>{order.served_by_name}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-dashed border-gray-400 my-2"/>
+
+            {/* Tabel pesanan — 3 kolom: menu | qty | total */}
+            <table className="w-full text-xs mb-2">
+              <thead>
+                <tr className="border-b border-gray-300">
+                  <th className="text-left py-0.5 font-semibold">Menu</th>
+                  <th className="text-center py-0.5 font-semibold w-6">Qty</th>
+                  <th className="text-right py-0.5 font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => (
+                  <tr key={item.id}>
+                    <td className="py-0.5 pr-2">
+                      <div>{item.menu_name}</div>
+                      {item.notes && (
+                        <div className="text-gray-500 italic text-xs">↳ {item.notes}</div>
+                      )}
+                      <div className="text-gray-400">{formatRupiah(item.unit_price)}</div>
+                    </td>
+                    <td className="py-0.5 text-center">{item.quantity}</td>
+                    <td className="py-0.5 text-right font-medium">
+                      {formatRupiah(item.unit_price * item.quantity)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="border-t border-dashed border-gray-400 my-2"/>
+
+            {/* Total dan pembayaran */}
+            <div className="space-y-0.5 text-xs">
+              <div className="flex justify-between font-black text-sm">
+                <span>TOTAL</span>
+                <span>{formatRupiah(order.total_price)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Pembayaran</span>
+                <span className="font-semibold">{order.payment_method}</span>
+              </div>
+              {/* Kembalian — hanya untuk Cash */}
+              {order.payment_method === 'CASH' && cashReceived && cashReceived > 0 && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Bayar</span>
+                    <span>{formatRupiah(cashReceived)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold">
+                    <span>Kembali</span>
+                    <span>{formatRupiah(change)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="border-t border-dashed border-gray-400 mt-2 mb-3"/>
+
+            {/* Footer */}
+            <div className="text-center text-xs text-gray-500">
+              <p>{settings?.footer_text ?? 'Terima kasih, sampai jumpa lagi! 🍽️'}</p>
+            </div>
+          </div>
+
+          {/* Tombol aksi — tidak akan tercetak (class no-print) */}
+          <div className="p-4 border-t border-gray-200 flex gap-3 no-print">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg
+                text-sm font-semibold text-gray-700 transition-colors"
+            >
+              Tutup
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 rounded-lg
+                text-sm font-bold text-white transition-colors"
+            >
+              🖨️ Cetak
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+</file>
+
+<file path="src/hooks/useCurrentUser.ts">
+'use client'
+// src/hooks/useCurrentUser.ts
+// Hook reusable untuk dapat info user yang sedang login
+// Dipakai di CartPanel (served_by), HomeLayout (role check), dll
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import type { Profile } from '@/types/database'
+
+interface CurrentUser {
+  id:          string
+  email:       string
+  profile:     Profile | null
+  loading:     boolean
+}
+
+export function useCurrentUser(): CurrentUser {
+  const [user, setUser] = useState<CurrentUser>({
+    id: '', email: '', profile: null, loading: true
+  })
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (!authUser) {
+        setUser({ id: '', email: '', profile: null, loading: false })
+        return
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single()
+
+      setUser({
+        id:      authUser.id,
+        email:   authUser.email ?? '',
+        profile: profile as Profile | null,
+        loading: false,
+      })
+    }
+
+    fetchUser()
+
+    // Subscribe perubahan auth (logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      fetchUser()
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return user
+}
+</file>
 
 <file path="public/file.svg">
 <svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
@@ -345,300 +798,424 @@ export async function GET(request: NextRequest) {
 <file path="src/app/home/admin/page.tsx">
 'use client'
 // src/app/home/admin/page.tsx
-// UPDATE dari src/app/admin/page.tsx:
-// - Path pindah ke /home/admin
-// - Tambah kolom 'Stok' di tabel menu
-// - Tambah input stok di form tambah/edit menu
-// - Hapus field image dari form (image_url sudah dihapus dari DB)
-// - Header dihapus (sudah ada di HomeLayout)
+// V3 UPDATE (perubahan besar):
+// - Tab baru: Kategori (CRUD categories)
+// - Tab baru: Pegawai (kelola role + display name)
+// - Tab baru: Pengaturan Toko (store_settings untuk struk)
+// - Laporan: 90 hari terakhir + riwayat order per transaksi + ekspor CSV
+// - Responsive untuk mobile
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { formatRupiah } from '@/lib/utils'
-import type { Menu } from '@/types/database'
+import type { Menu, Category, Order, Profile, StoreSettings, UserRole } from '@/types/database'
 
-type Tab = 'menus' | 'report'
+type Tab = 'menus' | 'categories' | 'staff' | 'report' | 'settings'
+
+// ═══ HELPER ═══
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleString('id-ID', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 
 export default function AdminPage() {
-  const [tab,        setTab]        = useState<Tab>('menus')
-  const [menus,      setMenus]      = useState<Menu[]>([])
-  // UPDATE: tambah field stock di form, hapus field image
-  const [form,       setForm]       = useState({
-    name: '', price: '', category: 'Makanan', stock: '0'
-  })
-  const [editId,     setEditId]     = useState<string | null>(null)
-  const [showForm,   setShowForm]   = useState(false)
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
-  const [report,     setReport]     = useState<{
+  const [tab, setTab] = useState<Tab>('menus')
+
+  // ── MENUS ──
+  const [menus,    setMenus]    = useState<Menu[]>([])
+  const [menuForm, setMenuForm] = useState({ name: '', price: '', category: '', stock: '0' })
+  const [editMenuId, setEditMenuId] = useState<string | null>(null)
+  const [showMenuForm, setShowMenuForm] = useState(false)
+
+  // ── CATEGORIES ──
+  const [categories,   setCategories]   = useState<Category[]>([])
+  const [catForm,      setCatForm]      = useState({ name: '', sort_order: '0' })
+  const [editCatId,    setEditCatId]    = useState<string | null>(null)
+  const [showCatForm,  setShowCatForm]  = useState(false)
+
+  // ── STAFF ──
+  const [staff, setStaff] = useState<(Profile & { email: string })[]>([])
+
+  // ── REPORT ──
+  const [reportRange, setReportRange]   = useState<'today' | '7d' | '30d' | '90d'>('7d')
+  const [reportData,  setReportData]    = useState<{
     total: number; revenue: number; cash: number; qris: number
+    topMenus: { name: string; qty: number }[]
+    bottomMenus: { name: string; qty: number }[]
   } | null>(null)
+  const [orderHistory, setOrderHistory] = useState<Order[]>([])
+  const [historyPage,  setHistoryPage]  = useState(1)
+  const PAGE_SIZE = 20
 
-  const fetchMenus = async () => {
-    const { data } = await supabase
-      .from('menus')
-      .select('*')
-      .order('category')
-      .order('name')
+  // ── SETTINGS ──
+  const [settings,    setSettings]    = useState<StoreSettings | null>(null)
+  const [settingsForm, setSettingsForm] = useState({
+    store_name: '', store_address: '', store_social: '', footer_text: ''
+  })
+
+  // ══════════════════════════════════════
+  // FETCH FUNCTIONS
+  // ══════════════════════════════════════
+
+  const fetchMenus = useCallback(async () => {
+    const { data } = await supabase.from('menus').select('*').order('category').order('name')
     if (data) setMenus(data as Menu[])
-  }
+  }, [])
 
-  useEffect(() => { fetchMenus() }, [])
+  const fetchCategories = useCallback(async () => {
+    const { data } = await supabase.from('categories').select('*').order('sort_order')
+    if (data) setCategories(data as Category[])
+  }, [])
 
-  // Ambil laporan untuk tanggal yang dipilih
-  useEffect(() => {
-    const fetchReport = async () => {
-      const { data } = await supabase
-        .from('orders')
-        .select('total_price, payment_method')
-        .gte('created_at', `${reportDate}T00:00:00`)
-        .lte('created_at', `${reportDate}T23:59:59`)
-        .eq('status', 'COMPLETED')
+  const fetchStaff = useCallback(async () => {
+    // Join profiles dengan email dari auth.users via RPC atau views
+    // Karena auth.users tidak bisa di-query langsung dari client,
+    // kita ambil profiles saja dan email bisa diisi dari metadata
+    const { data } = await supabase.from('profiles').select('*').order('created_at')
+    if (data) {
+      // Untuk mendapatkan email, perlu query auth.users dari server side
+      // Di sini kita tampilkan data yang tersedia
+      setStaff(data.map(p => ({ ...p, email: '(lihat Supabase Auth)' })) as (Profile & { email: string })[])
+    }
+  }, [])
 
-      if (data) setReport({
-        total:   data.length,
-        revenue: data.reduce((s, o) => s + Number(o.total_price), 0),
-        cash:    data.filter(o => o.payment_method === 'CASH').length,
-        qris:    data.filter(o => o.payment_method === 'QRIS').length,
+  const fetchReport = useCallback(async () => {
+    const now   = new Date()
+    const from  = new Date(now)
+    if      (reportRange === 'today') from.setHours(0, 0, 0, 0)
+    else if (reportRange === '7d')    from.setDate(now.getDate() - 7)
+    else if (reportRange === '30d')   from.setDate(now.getDate() - 30)
+    else if (reportRange === '90d')   from.setDate(now.getDate() - 90)
+
+    const fromISO = from.toISOString()
+
+    // Query orders completed
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('total_price, payment_method, created_at, order_number, customer_name, served_by_name')
+      .gte('created_at', fromISO)
+      .eq('status', 'COMPLETED')
+      .order('created_at', { ascending: false })
+
+    // Query untuk top menu
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('menu_name, quantity, orders!inner(created_at, status)')
+      .gte('orders.created_at', fromISO)
+      .eq('orders.status', 'COMPLETED')
+
+    if (orders) {
+      // Agregasi top/bottom menu
+      const menuMap: Record<string, number> = {}
+      items?.forEach(item => {
+        menuMap[item.menu_name] = (menuMap[item.menu_name] ?? 0) + item.quantity
+      })
+      const menuArr = Object.entries(menuMap)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty)
+
+      setReportData({
+        total:       orders.length,
+        revenue:     orders.reduce((s, o) => s + Number(o.total_price), 0),
+        cash:        orders.filter(o => o.payment_method === 'CASH').length,
+        qris:        orders.filter(o => o.payment_method === 'QRIS').length,
+        topMenus:    menuArr.slice(0, 5),
+        bottomMenus: menuArr.slice(-5).reverse(),
       })
     }
-    fetchReport()
-  }, [reportDate])
+  }, [reportRange])
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.price) {
-      toast.error('Nama dan harga wajib diisi')
-      return
+  const fetchOrderHistory = useCallback(async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .order('created_at', { ascending: false })
+      .range((historyPage - 1) * PAGE_SIZE, historyPage * PAGE_SIZE - 1)
+
+    if (data) setOrderHistory(data as Order[])
+  }, [historyPage])
+
+  const fetchSettings = useCallback(async () => {
+    const { data } = await supabase.from('store_settings').select('*').eq('id', 1).single()
+    if (data) {
+      setSettings(data as StoreSettings)
+      setSettingsForm({
+        store_name:    data.store_name,
+        store_address: data.store_address,
+        store_social:  data.store_social,
+        footer_text:   data.footer_text,
+      })
     }
+  }, [])
 
-    // UPDATE: sertakan stock di payload
+  useEffect(() => { fetchMenus(); fetchCategories() }, [fetchMenus, fetchCategories])
+  useEffect(() => { if (tab === 'staff')    fetchStaff()    }, [tab, fetchStaff])
+  useEffect(() => { if (tab === 'report')   { fetchReport(); fetchOrderHistory() } }, [tab, fetchReport, fetchOrderHistory])
+  useEffect(() => { if (tab === 'settings') fetchSettings() }, [tab, fetchSettings])
+  useEffect(() => { if (tab === 'report')   fetchReport()  }, [reportRange, tab, fetchReport])
+  useEffect(() => { if (tab === 'report')   fetchOrderHistory() }, [historyPage, tab, fetchOrderHistory])
+
+  // ══════════════════════════════════════
+  // MENU ACTIONS
+  // ══════════════════════════════════════
+
+  const handleMenuSubmit = async () => {
+    if (!menuForm.name || !menuForm.price) { toast.error('Nama dan harga wajib diisi'); return }
     const payload = {
-      name:     form.name,
-      price:    parseFloat(form.price),
-      category: form.category,
-      stock:    parseInt(form.stock) || 0,   // ← field baru
+      name:     menuForm.name,
+      price:    parseFloat(menuForm.price),
+      category: menuForm.category || (categories[0]?.name ?? 'Makanan'),
+      stock:    parseInt(menuForm.stock) || 0,
     }
-
-    if (editId) {
-      await supabase.from('menus').update(payload).eq('id', editId)
+    if (editMenuId) {
+      await supabase.from('menus').update(payload).eq('id', editMenuId)
       toast.success('Menu diupdate')
     } else {
       await supabase.from('menus').insert(payload)
       toast.success('Menu ditambahkan')
     }
-
-    setForm({ name: '', price: '', category: 'Makanan', stock: '0' })
-    setEditId(null)
-    setShowForm(false)
-    fetchMenus()
+    setMenuForm({ name: '', price: '', category: '', stock: '0' })
+    setEditMenuId(null); setShowMenuForm(false); fetchMenus()
   }
 
   const toggleAvail = async (m: Menu) => {
-    await supabase
-      .from('menus')
-      .update({ is_available: !m.is_available })
-      .eq('id', m.id)
+    await supabase.from('menus').update({ is_available: !m.is_available }).eq('id', m.id)
     toast.success(`${m.name} → ${!m.is_available ? 'Tersedia' : 'Habis'}`)
     fetchMenus()
   }
 
-  // UPDATE stok langsung dari tabel tanpa buka form — quick action
   const updateStock = async (m: Menu, delta: number) => {
-    const newStock = Math.max(0, m.stock + delta) // tidak boleh negatif
-    await supabase
-      .from('menus')
-      .update({ stock: newStock })
-      .eq('id', m.id)
-    // Update state lokal langsung agar tidak perlu fetch ulang
-    setMenus(prev => prev.map(menu =>
-      menu.id === m.id ? { ...menu, stock: newStock } : menu
-    ))
+    const newStock = Math.max(0, m.stock + delta)
+    await supabase.from('menus').update({ stock: newStock }).eq('id', m.id)
+    setMenus(prev => prev.map(x => x.id === m.id ? { ...x, stock: newStock } : x))
   }
 
   const deleteMenu = async (m: Menu) => {
     if (!confirm(`Hapus "${m.name}"?`)) return
     await supabase.from('menus').delete().eq('id', m.id)
-    toast.success('Dihapus')
-    fetchMenus()
+    toast.success('Dihapus'); fetchMenus()
   }
 
-  return (
-    <div className="p-6 max-w-5xl mx-auto w-full">
+  // ══════════════════════════════════════
+  // CATEGORY ACTIONS
+  // ══════════════════════════════════════
 
-      {/* Tab navigasi */}
-      <div className="flex gap-2 mb-6">
-        {(['menus', 'report'] as Tab[]).map(t => (
+  const handleCatSubmit = async () => {
+    if (!catForm.name) { toast.error('Nama kategori wajib diisi'); return }
+    const payload = { name: catForm.name, sort_order: parseInt(catForm.sort_order) || 0 }
+    if (editCatId) {
+      await supabase.from('categories').update(payload).eq('id', editCatId)
+      toast.success('Kategori diupdate')
+    } else {
+      await supabase.from('categories').insert(payload)
+      toast.success('Kategori ditambahkan')
+    }
+    setCatForm({ name: '', sort_order: '0' }); setEditCatId(null); setShowCatForm(false); fetchCategories()
+  }
+
+  const deleteCat = async (c: Category) => {
+    if (!confirm(`Hapus kategori "${c.name}"? Menu dengan kategori ini tidak terhapus.`)) return
+    await supabase.from('categories').delete().eq('id', c.id)
+    toast.success('Kategori dihapus'); fetchCategories()
+  }
+
+  // ══════════════════════════════════════
+  // STAFF ACTIONS
+  // ══════════════════════════════════════
+
+  const updateStaffRole = async (staffId: string, newRole: UserRole) => {
+    await supabase.from('profiles').update({ role: newRole }).eq('id', staffId)
+    toast.success('Role diupdate'); fetchStaff()
+  }
+
+  const updateDisplayName = async (staffId: string, name: string) => {
+    await supabase.from('profiles').update({ display_name: name }).eq('id', staffId)
+    toast.success('Nama diupdate'); fetchStaff()
+  }
+
+  // ══════════════════════════════════════
+  // SETTINGS ACTIONS
+  // ══════════════════════════════════════
+
+  const handleSettingsSave = async () => {
+    await supabase.from('store_settings').upsert({ id: 1, ...settingsForm })
+    toast.success('Pengaturan disimpan'); fetchSettings()
+  }
+
+  // ══════════════════════════════════════
+  // EXPORT CSV
+  // ══════════════════════════════════════
+
+  const exportCSV = async () => {
+    const now   = new Date()
+    const from  = new Date(now)
+    from.setDate(now.getDate() - 90) // 90 hari terakhir
+
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .gte('created_at', from.toISOString())
+      .order('created_at', { ascending: false })
+
+    if (!orders || orders.length === 0) { toast.error('Tidak ada data untuk diekspor'); return }
+
+    const rows: string[][] = [
+      ['No. Order', 'Tanggal', 'Pelanggan', 'Dilayani Oleh', 'Jenis', 'Meja', 'Pesanan', 'Total', 'Pembayaran', 'Status']
+    ]
+
+    orders.forEach((o: Order) => {
+      const pesanan = o.order_items
+        ?.map(i => `${i.quantity}x ${i.menu_name}`)
+        .join(' | ') ?? ''
+
+      rows.push([
+        o.order_number,
+        formatDate(o.created_at),
+        o.customer_name || '-',
+        o.served_by_name || '-',
+        o.order_type === 'DINE_IN' ? 'Di Sini' : 'Bungkus',
+        o.table_number || '-',
+        pesanan,
+        String(o.total_price),
+        o.payment_method,
+        o.status,
+      ])
+    })
+
+    // Buat file CSV dan trigger download
+    const csv  = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }) // BOM untuk Excel
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `laporan-kasir-dapur-90hari-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('CSV berhasil didownload!')
+  }
+
+  // ══════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'menus',      label: '🍜 Menu'       },
+    { id: 'categories', label: '🏷️ Kategori'   },
+    { id: 'staff',      label: '👥 Pegawai'    },
+    { id: 'report',     label: '📊 Laporan'    },
+    { id: 'settings',   label: '⚙️ Toko'       },
+  ]
+
+  return (
+    <div className="p-4 md:p-6 max-w-5xl mx-auto w-full">
+
+      {/* Tab navigasi — horizontal scroll di mobile */}
+      <div className="flex gap-1.5 md:gap-2 mb-5 overflow-x-auto pb-1">
+        {tabs.map(t => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-              tab === t
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-3 md:px-4 py-2 rounded-lg text-xs md:text-sm font-semibold whitespace-nowrap
+              transition-colors shrink-0 ${
+              tab === t.id
                 ? 'bg-orange-600 text-white'
                 : 'bg-gray-900 text-gray-400 hover:bg-gray-800'
             }`}
           >
-            {t === 'menus' ? '🍜 Kelola Menu' : '📊 Laporan'}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* ═══ TAB MENU ═══ */}
+      {/* ═══ TAB: MENUS ═══ */}
       {tab === 'menus' && (
         <div>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">Daftar Menu</h2>
+            <h2 className="text-base font-bold">Daftar Menu</h2>
             <button
-              onClick={() => {
-                setEditId(null)
-                setForm({ name: '', price: '', category: 'Makanan', stock: '0' })
-                setShowForm(true)
-              }}
-              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors"
+              onClick={() => { setEditMenuId(null); setMenuForm({ name: '', price: '', category: categories[0]?.name ?? '', stock: '0' }); setShowMenuForm(true) }}
+              className="px-3 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-xs font-bold"
             >
-              + Tambah Menu
+              + Tambah
             </button>
           </div>
 
-          {/* Form tambah / edit */}
-          {showForm && (
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4">
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  placeholder="Nama Menu *"
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
-                    text-sm focus:outline-none focus:border-orange-500"
-                />
-                <input
-                  type="number"
-                  placeholder="Harga *"
-                  value={form.price}
-                  onChange={e => setForm({ ...form, price: e.target.value })}
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
-                    text-sm focus:outline-none focus:border-orange-500"
-                />
-
-                <select
-                  value={form.category}
-                  onChange={e => setForm({ ...form, category: e.target.value })}
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm"
-                >
-                  {['Makanan', 'Minuman', 'Snack'].map(c =>
-                    <option key={c}>{c}</option>
-                  )}
-                </select>
-
-                {/* UPDATE: input stok */}
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-400 shrink-0">Stok awal:</label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={form.stock}
-                    onChange={e => setForm({ ...form, stock: e.target.value })}
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
-                      text-sm focus:outline-none focus:border-orange-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-end mt-3">
-                <button
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors"
-                >
-                  Simpan
-                </button>
+          {showMenuForm && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4 grid grid-cols-2 gap-3">
+              <input
+                placeholder="Nama Menu *"
+                value={menuForm.name}
+                onChange={e => setMenuForm({ ...menuForm, name: e.target.value })}
+                className="col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="number" placeholder="Harga *"
+                value={menuForm.price}
+                onChange={e => setMenuForm({ ...menuForm, price: e.target.value })}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="number" placeholder="Stok awal"
+                value={menuForm.stock} min="0"
+                onChange={e => setMenuForm({ ...menuForm, stock: e.target.value })}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+              {/* Dropdown kategori dari DB */}
+              <select
+                value={menuForm.category}
+                onChange={e => setMenuForm({ ...menuForm, category: e.target.value })}
+                className="col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm"
+              >
+                {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+              <div className="col-span-2 flex gap-2 justify-end">
+                <button onClick={() => setShowMenuForm(false)} className="px-4 py-2 bg-gray-700 rounded-lg text-sm">Batal</button>
+                <button onClick={handleMenuSubmit} className="px-4 py-2 bg-orange-600 rounded-lg text-sm font-bold">Simpan</button>
               </div>
             </div>
           )}
 
-          {/* Tabel menu */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
               <thead className="bg-gray-800 text-gray-400 text-xs uppercase">
                 <tr>
                   {['Nama', 'Kategori', 'Harga', 'Stok', 'Status', 'Aksi'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left">{h}</th>
+                    <th key={h} className="px-3 py-3 text-left">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {menus.map(m => (
-                  <tr key={m.id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-3 font-medium text-white">{m.name}</td>
-                    <td className="px-4 py-3 text-gray-400">{m.category}</td>
-                    <td className="px-4 py-3 text-orange-400 font-mono">
-                      {formatRupiah(m.price)}
-                    </td>
-
-                    {/* UPDATE: kolom stok dengan tombol +/- */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => updateStock(m, -1)}
-                          className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold"
-                        >−</button>
-                        <span className={`w-8 text-center font-bold text-sm ${
-                          m.stock === 0
-                            ? 'text-red-400'
-                            : m.stock <= 5
-                              ? 'text-yellow-400'
-                              : 'text-white'
-                        }`}>
+                  <tr key={m.id} className="hover:bg-gray-800/30">
+                    <td className="px-3 py-2.5 font-medium text-white text-xs md:text-sm">{m.name}</td>
+                    <td className="px-3 py-2.5 text-gray-400 text-xs">{m.category}</td>
+                    <td className="px-3 py-2.5 text-orange-400 font-mono text-xs">{formatRupiah(m.price)}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => updateStock(m, -1)} className="w-5 h-5 rounded bg-gray-700 text-white text-xs font-bold">−</button>
+                        <span className={`w-7 text-center font-bold text-xs ${m.stock === 0 ? 'text-red-400' : m.stock <= 5 ? 'text-yellow-400' : 'text-white'}`}>
                           {m.stock}
                         </span>
-                        <button
-                          onClick={() => updateStock(m, +1)}
-                          className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold"
-                        >+</button>
+                        <button onClick={() => updateStock(m, +1)} className="w-5 h-5 rounded bg-gray-700 text-white text-xs font-bold">+</button>
                       </div>
                     </td>
-
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       <button
                         onClick={() => toggleAvail(m)}
-                        className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                          m.is_available
-                            ? 'bg-green-900 text-green-400 hover:bg-green-800'
-                            : 'bg-red-900 text-red-400 hover:bg-red-800'
-                        }`}
+                        className={`px-2 py-1 rounded-full text-xs font-bold ${m.is_available ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}
                       >
                         {m.is_available ? 'Tersedia' : 'Habis'}
                       </button>
                     </td>
-
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
+                    <td className="px-3 py-2.5">
+                      <div className="flex gap-1.5">
                         <button
-                          onClick={() => {
-                            setEditId(m.id)
-                            setForm({
-                              name:     m.name,
-                              price:    String(m.price),
-                              category: m.category,
-                              stock:    String(m.stock), // ← sertakan stok
-                            })
-                            setShowForm(true)
-                          }}
-                          className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deleteMenu(m)}
-                          className="px-3 py-1 bg-red-900 hover:bg-red-800 rounded text-xs text-red-400 transition-colors"
-                        >
-                          Hapus
-                        </button>
+                          onClick={() => { setEditMenuId(m.id); setMenuForm({ name: m.name, price: String(m.price), category: m.category, stock: String(m.stock) }); setShowMenuForm(true) }}
+                          className="px-2 py-1 bg-gray-700 rounded text-xs"
+                        >Edit</button>
+                        <button onClick={() => deleteMenu(m)} className="px-2 py-1 bg-red-900 rounded text-xs text-red-400">Hapus</button>
                       </div>
                     </td>
                   </tr>
@@ -649,38 +1226,324 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ═══ TAB LAPORAN ═══ */}
-      {tab === 'report' && (
+      {/* ═══ TAB: CATEGORIES ═══ */}
+      {tab === 'categories' && (
         <div>
-          <div className="flex items-center gap-4 mb-6">
-            <h2 className="text-lg font-bold">Laporan Penjualan</h2>
-            <input
-              type="date"
-              value={reportDate}
-              onChange={e => setReportDate(e.target.value)}
-              className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                focus:outline-none focus:border-orange-500"
-            />
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-base font-bold">Kelola Kategori</h2>
+            <button
+              onClick={() => { setEditCatId(null); setCatForm({ name: '', sort_order: String(categories.length + 1) }); setShowCatForm(true) }}
+              className="px-3 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg text-xs font-bold"
+            >
+              + Tambah
+            </button>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-xs text-gray-500 mb-4">
+            💡 Urutan ditentukan oleh angka Sort Order — semakin kecil, semakin duluan tampil di POS.
           </div>
 
-          {report && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {([
-                ['🧾', `${report.total} pesanan`,      'Total Transaksi'],
-                ['💰', formatRupiah(report.revenue),   'Total Pendapatan'],
-                ['💵', `${report.cash} pesanan`,       'Bayar Cash'],
-                ['📱', `${report.qris} pesanan`,       'Bayar QRIS'],
-              ] as const).map(([ico, val, lbl]) => (
-                <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                  <div className="text-3xl mb-2">{ico}</div>
-                  <div className="text-xl font-black text-white">{val}</div>
-                  <div className="text-xs text-gray-500 mt-1">{lbl}</div>
-                </div>
-              ))}
+          {showCatForm && (
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4 flex gap-3">
+              <input
+                placeholder="Nama Kategori *"
+                value={catForm.name}
+                onChange={e => setCatForm({ ...catForm, name: e.target.value })}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+              />
+              <input
+                type="number" placeholder="Urutan"
+                value={catForm.sort_order}
+                onChange={e => setCatForm({ ...catForm, sort_order: e.target.value })}
+                className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+              />
+              <button onClick={() => setShowCatForm(false)} className="px-3 py-2 bg-gray-700 rounded-lg text-sm">Batal</button>
+              <button onClick={handleCatSubmit} className="px-3 py-2 bg-orange-600 rounded-lg text-sm font-bold">Simpan</button>
             </div>
           )}
+
+          <div className="space-y-2">
+            {categories.map(c => (
+              <div key={c.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex justify-between items-center">
+                <div>
+                  <div className="font-semibold text-white">{c.name}</div>
+                  <div className="text-xs text-gray-500">Urutan: {c.sort_order}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setEditCatId(c.id); setCatForm({ name: c.name, sort_order: String(c.sort_order) }); setShowCatForm(true) }}
+                    className="px-3 py-1.5 bg-gray-700 rounded text-xs"
+                  >Edit</button>
+                  <button onClick={() => deleteCat(c)} className="px-3 py-1.5 bg-red-900 rounded text-xs text-red-400">Hapus</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
+      {/* ═══ TAB: STAFF ═══ */}
+      {tab === 'staff' && (
+        <div>
+          <h2 className="text-base font-bold mb-4">Kelola Pegawai</h2>
+          <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-xs text-gray-500 mb-4">
+            💡 Display Name adalah nama yang tampil di KDS dan struk.
+          </div>
+          <div className="space-y-2">
+            {staff.map(s => (
+              <StaffRow key={s.id} staff={s} onRoleChange={updateStaffRole} onNameChange={updateDisplayName} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ TAB: REPORT ═══ */}
+      {tab === 'report' && (
+        <div>
+          {/* Kontrol */}
+          <div className="flex flex-wrap items-center gap-3 mb-5">
+            <h2 className="text-base font-bold">Laporan Penjualan</h2>
+            <div className="flex gap-1.5">
+              {(['today', '7d', '30d', '90d'] as const).map(r => (
+                <button
+                  key={r}
+                  onClick={() => { setReportRange(r); setHistoryPage(1) }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    reportRange === r ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400'
+                  }`}
+                >
+                  {r === 'today' ? 'Hari Ini' : r === '7d' ? '7 Hari' : r === '30d' ? '30 Hari' : '90 Hari'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={exportCSV}
+              className="ml-auto px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg text-xs font-bold transition-colors"
+            >
+              ⬇️ Ekspor CSV
+            </button>
+          </div>
+
+          {/* Kartu ringkasan */}
+          {reportData && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                {([
+                  ['🧾', `${reportData.total}`,              'Total Order'],
+                  ['💰', formatRupiah(reportData.revenue),   'Total Pendapatan'],
+                  ['💵', `${reportData.cash} order`,         'Bayar Cash'],
+                  ['📱', `${reportData.qris} order`,         'Bayar QRIS'],
+                ] as const).map(([ico, val, lbl]) => (
+                  <div key={lbl} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                    <div className="text-2xl mb-1">{ico}</div>
+                    <div className="text-lg font-black text-white">{val}</div>
+                    <div className="text-xs text-gray-500">{lbl}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Top & Bottom Menu */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <div className="text-sm font-bold mb-3 text-green-400">🔥 Menu Paling Laku</div>
+                  {reportData.topMenus.length === 0
+                    ? <p className="text-xs text-gray-500">Belum ada data</p>
+                    : reportData.topMenus.map((m, i) => (
+                      <div key={m.name} className="flex justify-between items-center py-1 text-sm">
+                        <span className="text-gray-300">{i + 1}. {m.name}</span>
+                        <span className="font-bold text-white">{m.qty}x</span>
+                      </div>
+                    ))}
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <div className="text-sm font-bold mb-3 text-red-400">📉 Menu Paling Jarang</div>
+                  {reportData.bottomMenus.length === 0
+                    ? <p className="text-xs text-gray-500">Belum ada data</p>
+                    : reportData.bottomMenus.map((m, i) => (
+                      <div key={m.name} className="flex justify-between items-center py-1 text-sm">
+                        <span className="text-gray-300">{i + 1}. {m.name}</span>
+                        <span className="font-bold text-white">{m.qty}x</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Riwayat transaksi */}
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold">Riwayat Transaksi</h3>
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                  disabled={historyPage === 1}
+                  className="px-3 py-1.5 bg-gray-800 rounded disabled:opacity-40"
+                >← Prev</button>
+                <span className="px-3 py-1.5 text-gray-400">Hal. {historyPage}</span>
+                <button
+                  onClick={() => setHistoryPage(p => p + 1)}
+                  disabled={orderHistory.length < PAGE_SIZE}
+                  className="px-3 py-1.5 bg-gray-800 rounded disabled:opacity-40"
+                >Next →</button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
+                <thead className="bg-gray-800 text-gray-400 uppercase">
+                  <tr>
+                    {['No. Order', 'Waktu', 'Pelanggan', 'Pelayan', 'Pesanan', 'Total', 'Bayar', 'Status'].map(h => (
+                      <th key={h} className="px-3 py-2.5 text-left whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {orderHistory.map(o => (
+                    <tr key={o.id} className="hover:bg-gray-800/30">
+                      <td className="px-3 py-2 font-mono font-bold text-orange-400">{o.order_number}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-400">{formatDate(o.created_at)}</td>
+                      <td className="px-3 py-2">{o.customer_name || '-'}</td>
+                      <td className="px-3 py-2">{o.served_by_name || '-'}</td>
+                      <td className="px-3 py-2 max-w-[180px]">
+                        <div className="truncate text-gray-400">
+                          {o.order_items?.map(i => `${i.quantity}x ${i.menu_name}`).join(', ')}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-bold text-white whitespace-nowrap">{formatRupiah(o.total_price)}</td>
+                      <td className="px-3 py-2 text-gray-400">{o.payment_method}</td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                          o.status === 'COMPLETED' ? 'bg-green-900 text-green-400'
+                          : o.status === 'CANCELLED' ? 'bg-red-900 text-red-400'
+                          : 'bg-yellow-900 text-yellow-400'
+                        }`}>
+                          {o.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ TAB: SETTINGS ═══ */}
+      {tab === 'settings' && (
+        <div>
+          <h2 className="text-base font-bold mb-4">Pengaturan Toko</h2>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-4 max-w-lg">
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Nama Toko</label>
+              <input
+                value={settingsForm.store_name}
+                onChange={e => setSettingsForm({ ...settingsForm, store_name: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Alamat Toko</label>
+              <input
+                placeholder="Jl. Contoh No. 123, Padang"
+                value={settingsForm.store_address}
+                onChange={e => setSettingsForm({ ...settingsForm, store_address: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Sosial Media (opsional)</label>
+              <input
+                placeholder="@nama_instagram"
+                value={settingsForm.store_social}
+                onChange={e => setSettingsForm({ ...settingsForm, store_social: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Teks Penutup Struk</label>
+              <input
+                placeholder="Terima kasih, sampai jumpa lagi!"
+                value={settingsForm.footer_text}
+                onChange={e => setSettingsForm({ ...settingsForm, footer_text: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500"
+              />
+            </div>
+            <button
+              onClick={handleSettingsSave}
+              className="w-full py-3 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors"
+            >
+              Simpan Pengaturan
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══ SUB-KOMPONEN: StaffRow ═══
+// Dipisah agar tiap baris punya state edit sendiri
+function StaffRow({
+  staff,
+  onRoleChange,
+  onNameChange,
+}: {
+  staff: Profile & { email: string }
+  onRoleChange: (id: string, role: UserRole) => void
+  onNameChange: (id: string, name: string) => void
+}) {
+  const [editingName, setEditingName] = useState(false)
+  const [name, setName] = useState(staff.display_name)
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div className="flex-1">
+        <div className="text-xs text-gray-500 mb-1">{staff.email}</div>
+        {editingName ? (
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Nama tampil (misal: Budi)"
+              className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-orange-500"
+            />
+            <button
+              onClick={() => { onNameChange(staff.id, name); setEditingName(false) }}
+              className="px-3 py-1 bg-orange-600 rounded text-xs font-bold"
+            >Simpan</button>
+            <button
+              onClick={() => { setName(staff.display_name); setEditingName(false) }}
+              className="px-3 py-1 bg-gray-700 rounded text-xs"
+            >Batal</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white text-sm">
+              {staff.display_name || <span className="text-gray-500 italic">Belum ada nama</span>}
+            </span>
+            <button onClick={() => setEditingName(true)} className="text-xs text-gray-500 hover:text-gray-300">✏️</button>
+          </div>
+        )}
+      </div>
+
+      {/* Toggle role */}
+      <div className="flex gap-2">
+        {(['OWNER', 'EMPLOYEE'] as UserRole[]).map(r => (
+          <button
+            key={r}
+            onClick={() => onRoleChange(staff.id, r)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+              staff.role === r
+                ? r === 'OWNER' ? 'bg-orange-600 text-white' : 'bg-blue-700 text-white'
+                : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            {r === 'OWNER' ? '👑 Owner' : '👤 Pegawai'}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -700,12 +1563,13 @@ export default function KDSLayout({ children }: { children: React.ReactNode }) {
 <file path="src/app/home/kds/page.tsx">
 'use client'
 // src/app/home/kds/page.tsx
-// UPDATE dari src/app/kds/page.tsx:
-// - Path pindah ke /home/kds
-// - Tampilkan customer_name dan order_type di header card
-// - Logic realtime tidak berubah
+// V3 UPDATE:
+// - FIX: WebSocket tidak connect tanpa refresh → tambah reconnect logic
+// - FIX: order_items sekarang masuk supabase_realtime publication (via migration)
+// - NEW: bunyi notifikasi saat pesanan baru masuk (Web Audio API)
+// - NEW: tampilkan served_by_name di OrderCard
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { OrderCard } from '@/components/kds/OrderCard'
 import type { Order } from '@/types/database'
@@ -714,50 +1578,114 @@ export default function KDSPage() {
   const [orders,    setOrders]    = useState<Order[]>([])
   const [connected, setConnected] = useState(false)
 
-  // Ambil semua order PENDING yang sudah ada saat halaman dibuka
+  // AudioContext disimpan di ref — bisa dipakai berkali-kali tanpa re-create
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  // Ref untuk channel — dipakai di cleanup
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  // Init AudioContext saat pertama kali user interaksi dengan halaman
+  // Browser tidak boleh create AudioContext sebelum ada user gesture
+  useEffect(() => {
+    const init = () => {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContext()
+      }
+    }
+    document.addEventListener('click',      init, { once: true })
+    document.addEventListener('touchstart', init, { once: true })
+    return () => {
+      document.removeEventListener('click',      init)
+      document.removeEventListener('touchstart', init)
+    }
+  }, [])
+
+  // Bunyi dua nada naik — khas notifikasi dapur
+  const playNewOrderSound = useCallback(() => {
+    const ctx = audioCtxRef.current
+    if (!ctx) return
+
+    const playBeep = (startTime: number, frequency: number, duration = 0.25) => {
+      const osc  = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = frequency
+      gain.gain.setValueAtTime(0.4, startTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
+      osc.start(startTime)
+      osc.stop(startTime + duration)
+    }
+
+    // Dua beep: 660Hz → 880Hz
+    playBeep(ctx.currentTime,        660)
+    playBeep(ctx.currentTime + 0.25, 880)
+  }, [])
+
   const fetchPending = useCallback(async () => {
     const { data } = await supabase
       .from('orders')
       .select('*, order_items(*)')
       .eq('status', 'PENDING')
-      .order('created_at', { ascending: true }) // FIFO — pertama masuk, pertama keluar
+      .order('created_at', { ascending: true })
     if (data) setOrders(data as Order[])
   }, [])
 
-  useEffect(() => {
-    fetchPending()
+  const setupChannel = useCallback(() => {
+    // Hapus channel lama kalau ada
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+    }
 
-    // Subscribe ke perubahan tabel orders via WebSocket Supabase Realtime
     const channel = supabase
-      .channel('kds-realtime')
+      .channel('kds-realtime-v3')  // nama unik agar tidak bentrok dengan channel lama
 
-      // Event INSERT — pesanan baru masuk dari kasir
+      // INSERT order baru dari kasir
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
         async (payload) => {
-          // Payload INSERT tidak menyertakan order_items → fetch ulang dengan join
+          // Hanya tampilkan order yang PENDING (bukan PENDING_PAYMENT)
+          if (payload.new.status !== 'PENDING') return
+
+          // Fetch dengan join order_items
           const { data } = await supabase
             .from('orders')
             .select('*, order_items(*)')
             .eq('id', payload.new.id)
             .single()
-          if (data) setOrders(prev => [...prev, data as Order])
+
+          if (data) {
+            setOrders(prev => [...prev, data as Order])
+            playNewOrderSound() // 🔔 bunyi!
+          }
         }
       )
 
-      // Event UPDATE — status berubah (misal READY atau COMPLETED)
+      // UPDATE order — kalau status berubah dari PENDING_PAYMENT ke PENDING (setelah QRIS bayar)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
-          // Kalau bukan PENDING lagi → hapus dari board KDS
-          if (payload.new.status !== 'PENDING') {
+        async (payload) => {
+          if (payload.new.status === 'PENDING' && payload.old.status === 'PENDING_PAYMENT') {
+            // Order baru masuk setelah pembayaran QRIS berhasil
+            const { data } = await supabase
+              .from('orders')
+              .select('*, order_items(*)')
+              .eq('id', payload.new.id)
+              .single()
+            if (data) {
+              setOrders(prev => [...prev, data as Order])
+              playNewOrderSound()
+            }
+          } else if (payload.new.status !== 'PENDING') {
+            // Order selesai/dibatalkan → hapus dari board
             setOrders(prev => prev.filter(o => o.id !== payload.new.id))
           }
         }
       )
 
-      // Event UPDATE pada order_items — saat is_ready diupdate dari OrderCard
+      // UPDATE order_items — ceklis per item dari OrderCard
+      // Ini hanya berfungsi setelah menjalankan migration-v3.sql
+      // (menambahkan order_items ke supabase_realtime publication)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' },
         (payload) => {
-          // Update state is_ready item yang berubah tanpa fetch ulang semua
           setOrders(prev => prev.map(order => ({
             ...order,
             order_items: order.order_items?.map(item =>
@@ -769,45 +1697,65 @@ export default function KDSPage() {
         }
       )
 
-      .subscribe(status => setConnected(status === 'SUBSCRIBED'))
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setConnected(true)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setConnected(false)
+          // Coba reconnect setelah 3 detik
+          setTimeout(() => setupChannel(), 3_000)
+        } else if (status === 'CLOSED') {
+          setConnected(false)
+        }
+      })
 
-    return () => { supabase.removeChannel(channel) }
-  }, [fetchPending])
+    channelRef.current = channel
+  }, [playNewOrderSound])
 
-  // Dipanggil dari OrderCard saat semua item sudah diceklis dan klik "Siap Saji"
+  useEffect(() => {
+    fetchPending()
+    setupChannel()
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current)
+    }
+  }, [fetchPending, setupChannel])
+
   const handleMarkReady = async (orderId: string) => {
+    // Trigger di DB akan otomatis kurangi stok (lihat migration-v3.sql)
     await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
   }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
 
-      {/* Header status bar */}
-      <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
-        <h1 className="text-xl font-bold">🍳 DAPUR</h1>
-        <div className="flex items-center gap-4">
-          {/* Jumlah pesanan aktif */}
-          <span className="text-3xl font-black text-orange-400">{orders.length}</span>
-          {/* Indikator koneksi WebSocket */}
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
+        <h1 className="text-lg md:text-xl font-bold">🍳 DAPUR</h1>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl md:text-3xl font-black text-orange-400">
+            {orders.length}
+          </span>
           <div className="flex items-center gap-2">
-            <span className={`w-3 h-3 rounded-full ${
+            <span className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${
               connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
             }`}/>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-400 hidden sm:block">
               {connected ? 'LIVE' : 'Reconnecting...'}
             </span>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 p-5 overflow-x-auto">
+      {/* Area pesanan — horizontal scroll di desktop, vertical di mobile */}
+      <main className="flex-1 p-3 md:p-5 overflow-x-auto overflow-y-auto">
         {orders.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-gray-700">
-            <span className="text-8xl mb-4">✅</span>
-            <p className="text-2xl font-bold">Semua Pesanan Selesai</p>
+          <div className="h-full min-h-[60vh] flex flex-col items-center justify-center text-gray-700">
+            <span className="text-6xl md:text-8xl mb-4">✅</span>
+            <p className="text-xl md:text-2xl font-bold">Semua Pesanan Selesai</p>
           </div>
         ) : (
-          <div className="flex gap-4 h-full">
+          // flex-wrap: di layar kecil card bisa wrap ke bawah
+          <div className="flex flex-wrap md:flex-nowrap gap-3 md:gap-4">
             {orders.map(order => (
               <OrderCard
                 key={order.id}
@@ -826,87 +1774,163 @@ export default function KDSPage() {
 <file path="src/app/home/pos/page.tsx">
 'use client'
 // src/app/home/pos/page.tsx
-// UPDATE dari src/app/pos/page.tsx:
-// - Path pindah ke /home/pos
-// - Tampilkan stok pada filter kategori (stok menipis)
-// - Header dihapus (sudah ada di HomeLayout)
+// V3 UPDATE:
+// - Kategori dari DB (tabel categories) — tidak hardcode lagi
+// - Get current user untuk served_by di CartPanel
+// - Responsive: mobile pakai drawer cart (slide up dari bawah)
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { MenuGrid } from '@/components/pos/MenuGrid'
 import { CartPanel } from '@/components/pos/CartPanel'
-import type { Menu } from '@/types/database'
-
-const CATEGORIES = ['Semua', 'Makanan', 'Minuman', 'Snack']
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useCartStore } from '@/store/cart.store'
+import type { Menu, Category } from '@/types/database'
 
 export default function POSPage() {
-  const [menus,    setMenus]    = useState<Menu[]>([])
-  const [category, setCategory] = useState('Semua')
-  const [search,   setSearch]   = useState('')
+  const [menus,      setMenus]      = useState<Menu[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [category,   setCategory]   = useState('Semua')
+  const [search,     setSearch]     = useState('')
+  const [cartOpen,   setCartOpen]   = useState(false) // mobile: toggle cart drawer
+
+  const { id: userId, profile } = useCurrentUser()
+  const cartCount = useCartStore(s => s.items.reduce((n, i) => n + i.quantity, 0))
 
   useEffect(() => {
+    // Fetch menu
     const fetchMenus = async () => {
       const { data } = await supabase.from('menus').select('*').order('name')
       if (data) setMenus(data as Menu[])
     }
-    fetchMenus()
 
-    // Subscribe perubahan menu — kalau admin ubah stok/ketersediaan, langsung update di POS
-    const ch = supabase.channel('menus-changes')
+    // Fetch categories dari DB — bukan hardcode lagi
+    const fetchCategories = async () => {
+      const { data } = await supabase
+        .from('categories')
+        .select('*')
+        .order('sort_order')
+      if (data) setCategories(data as Category[])
+    }
+
+    fetchMenus()
+    fetchCategories()
+
+    // Subscribe perubahan menu & categories realtime
+    const ch = supabase.channel('pos-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, fetchCategories)
       .subscribe()
+
     return () => { supabase.removeChannel(ch) }
   }, [])
 
-  // Filter berdasarkan kategori dan search
   const filtered = menus.filter(m => {
     const okCat    = category === 'Semua' || m.category === category
     const okSearch = m.name.toLowerCase().includes(search.toLowerCase())
     return okCat && okSearch
   })
 
+  const servedByName = profile?.display_name || ''
+  const servedById   = userId || ''
+
   return (
-    // h-[calc(100vh-49px)]: kurangi tinggi header dari HomeLayout
+    // Tinggi layar dikurangi header HomeLayout (49px)
     <div className="h-[calc(100vh-49px)] flex bg-gray-950 text-white overflow-hidden">
 
-      {/* Panel Kiri — Menu */}
+      {/* ═══ PANEL KIRI — Menu ═══ */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-4 pt-4 pb-3 bg-gray-900 border-b border-gray-800">
-          <div className="flex justify-between mb-3">
-            <h2 className="font-bold text-base">Pilih Menu</h2>
+        {/* Toolbar: judul + search */}
+        <div className="px-3 pt-3 pb-2 bg-gray-900 border-b border-gray-800">
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="font-bold text-sm flex-1">Pilih Menu</h2>
             <input
-              placeholder="Cari menu..."
+              placeholder="Cari..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
-                text-sm w-44 focus:outline-none focus:border-orange-500"
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5
+                text-sm w-32 md:w-44 focus:outline-none focus:border-orange-500"
             />
+            {/* Mobile: tombol buka cart dengan badge count */}
+            <button
+              onClick={() => setCartOpen(true)}
+              className="relative lg:hidden bg-orange-600 hover:bg-orange-500
+                rounded-lg px-3 py-1.5 text-sm font-bold transition-colors"
+            >
+              🛒
+              {cartCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white text-orange-600
+                  rounded-full text-xs font-black flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </button>
           </div>
-          <div className="flex gap-2 overflow-x-auto">
-            {CATEGORIES.map(cat => (
+
+          {/* Filter kategori — horizontal scroll */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setCategory('Semua')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                category === 'Semua'
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Semua
+            </button>
+            {categories.map(cat => (
               <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap shrink-0
-                  ${category === cat
+                key={cat.id}
+                onClick={() => setCategory(cat.name)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                  category === cat.name
                     ? 'bg-orange-600 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
               >
-                {cat}
+                {cat.name}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Grid menu */}
+        <div className="flex-1 overflow-y-auto p-3">
           <MenuGrid menus={filtered} />
         </div>
       </div>
 
-      {/* Panel Kanan — Cart */}
-      <div className="w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex flex-col">
-        <CartPanel />
+      {/* ═══ PANEL KANAN — Cart (desktop) ═══ */}
+      <div className="hidden lg:flex w-[320px] xl:w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex-col">
+        <CartPanel servedByName={servedByName} servedById={servedById} />
       </div>
+
+      {/* ═══ CART DRAWER — Mobile (slide up dari bawah) ═══ */}
+      {cartOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setCartOpen(false)}
+          />
+          {/* Drawer */}
+          <div className="relative bg-gray-900 rounded-t-2xl flex flex-col max-h-[85vh] z-10">
+            {/* Handle bar + tombol tutup */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-2"/>
+              <span className="font-bold text-sm mt-1">🛒 Cart</span>
+              <button
+                onClick={() => setCartOpen(false)}
+                className="text-gray-400 hover:text-white text-lg leading-none"
+              >×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <CartPanel servedByName={servedByName} servedById={servedById} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1213,129 +2237,6 @@ export default function KDSPage() {
           </div>
         )}
       </main>
-    </div>
-  )
-}
-</file>
-
-<file path="src/app/login/page.tsx">
-'use client'
-// src/app/login/page.tsx
-// UPDATE: halaman baru — form login dengan email + password
-//
-// Pakai supabase.auth.signInWithPassword() dari client browser
-// Setelah berhasil, router.push('/home') untuk redirect
-
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-
-export default function LoginPage() {
-  const router = useRouter()
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      // Terjemahkan pesan error Supabase ke bahasa Indonesia
-      if (error.message.includes('Invalid login credentials')) {
-        setError('Email atau password salah.')
-      } else if (error.message.includes('Email not confirmed')) {
-        setError('Email belum diverifikasi. Cek inbox kamu.')
-      } else {
-        setError(error.message)
-      }
-      setLoading(false)
-      return
-    }
-
-    await supabase.auth.refreshSession()
-
-    // Login berhasil → ke homepage
-    router.push('/home')
-    router.refresh() // Refresh agar middleware dapat sesi terbaru
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-
-        {/* Logo / judul */}
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-3">🍽️</div>
-          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
-          <p className="text-gray-500 text-sm mt-1">Masuk ke akun tokomu</p>
-        </div>
-
-        {/* Form login */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="email@toko.com"
-              required
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-                text-sm text-white placeholder-gray-600
-                focus:outline-none focus:border-orange-500 transition-colors"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-                text-sm text-white placeholder-gray-600
-                focus:outline-none focus:border-orange-500 transition-colors"
-            />
-          </div>
-
-          {/* Tampilkan error kalau ada */}
-          {error && (
-            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
-              disabled:text-gray-600 text-white font-bold py-3 rounded-lg
-              transition-colors text-sm"
-          >
-            {loading ? 'Masuk...' : 'Masuk'}
-          </button>
-        </form>
-
-        {/* Link ke register */}
-        <p className="text-center text-sm text-gray-600 mt-6">
-          Belum punya akun?{' '}
-          <Link href="/register" className="text-orange-400 hover:text-orange-300 font-semibold">
-            Daftar sekarang
-          </Link>
-        </p>
-      </div>
     </div>
   )
 }
@@ -1839,22 +2740,6 @@ export async function createServerSupabase() {
 }
 </file>
 
-<file path="src/lib/supabase.ts">
-import { createBrowserClient } from '@supabase/ssr'
-
-// Singleton — satu instance untuk seluruh aplikasi
-// NEXT_PUBLIC_ agar bisa diakses dari browser (client component)
-export const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  // {
-  //   realtime: {
-  //     timeout: 30000, // 30 detik — lebih toleran di jaringan restoran
-  //   },
-  // }
-)
-</file>
-
 <file path="src/lib/utils.ts">
 import { differenceInMinutes } from 'date-fns'
 
@@ -2059,6 +2944,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  allowedDevOrigins: ['applicant-upstage-hastily.ngrok-free.dev'],
 };
 
 export default nextConfig;
@@ -2191,6 +3077,129 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 }
 </file>
 
+<file path="src/app/login/page.tsx">
+'use client'
+// src/app/login/page.tsx
+// UPDATE: halaman baru — form login dengan email + password
+//
+// Pakai supabase.auth.signInWithPassword() dari client browser
+// Setelah berhasil, router.push('/home') untuk redirect
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+
+export default function LoginPage() {
+  const router = useRouter()
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (error) {
+      // Terjemahkan pesan error Supabase ke bahasa Indonesia
+      if (error.message.includes('Invalid login credentials')) {
+        setError('Email atau password salah.')
+      } else if (error.message.includes('Email not confirmed')) {
+        setError('Email belum diverifikasi. Cek inbox kamu.')
+      } else {
+        setError(error.message)
+      }
+      setLoading(false)
+      return
+    }
+
+    await supabase.auth.refreshSession()
+
+    // Login berhasil → ke homepage
+    router.push('/home')
+    router.refresh() // Refresh agar middleware dapat sesi terbaru
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        {/* Logo / judul */}
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-3">🍽️</div>
+          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
+          <p className="text-gray-500 text-sm mt-1">Masuk ke akun tokomu</p>
+        </div>
+
+        {/* Form login */}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="email@toko.com"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"
+            />
+          </div>
+
+          {/* Tampilkan error kalau ada */}
+          {error && (
+            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
+              disabled:text-gray-600 text-white font-bold py-3 rounded-lg
+              transition-colors text-sm"
+          >
+            {loading ? 'Masuk...' : 'Masuk'}
+          </button>
+        </form>
+
+        {/* Link ke register */}
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Belum punya akun?{' '}
+          <Link href="/register" className="text-orange-400 hover:text-orange-300 font-semibold">
+            Daftar sekarang
+          </Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+</file>
+
 <file path="src/app/layout.tsx">
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Noto_Sans, Playfair_Display } from "next/font/google";
@@ -2260,11 +3269,9 @@ export default async function RootPage() {
 <file path="src/components/kds/OrderCard.tsx">
 'use client'
 // src/components/kds/OrderCard.tsx
-// UPDATE dari sebelumnya:
-// - Tambah ceklis per item — dapur klik ✓ per menu satu-satu
-// - Tombol "SIAP SAJI" hanya aktif kalau SEMUA item sudah diceklis
-// - Saat item diceklis → update is_ready = true di DB (via supabase)
-// - Tampilkan customer_name dan order_type (DINE_IN/TAKEAWAY)
+// V3 UPDATE:
+// - Tampilkan served_by_name (nama kasir yang melayani)
+// - Responsive: card lebih kecil di layar kecil
 
 import { useEffect, useState } from 'react'
 import { getTimerStyle, formatTime, cn } from '@/lib/utils'
@@ -2277,36 +3284,31 @@ interface Props {
 }
 
 export function OrderCard({ order, onMarkReady }: Props) {
-  // Re-render tiap 30 detik agar warna timer otomatis update
-  const [, setTick]  = useState(0)
+  const [, setTick]   = useState(0)
   const [loading, setLoading] = useState(false)
 
+  // Re-render tiap 30 detik agar warna timer update otomatis
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 30_000)
     return () => clearInterval(t)
   }, [])
 
-  const style = getTimerStyle(order.created_at)
-  const items = order.order_items ?? []
-
-  // Semua item harus is_ready = true sebelum bisa klik "Siap Saji"
+  const style      = getTimerStyle(order.created_at)
+  const items      = order.order_items ?? []
   const allReady   = items.length > 0 && items.every(i => i.is_ready)
   const readyCount = items.filter(i => i.is_ready).length
 
-  // Ceklis satu item → update is_ready di DB
-  // Supabase Realtime di KDS page akan subscribe perubahan ini
-  // sehingga semua KDS (kalau ada lebih dari satu layar) sync otomatis
   const handleToggleItem = async (itemId: string, currentReady: boolean) => {
     await supabase
       .from('order_items')
       .update({ is_ready: !currentReady })
       .eq('id', itemId)
-    // Tidak perlu update state lokal — listener di kds/page.tsx yang handle
+    // State update handle oleh Realtime listener di kds/page.tsx
   }
 
   const handleReady = async () => {
     if (!allReady || loading) return
-    if (!confirm(`Tandai ${order.order_number} (Meja ${order.table_number}) SIAP?`)) return
+    if (!confirm(`Tandai ${order.order_number} SIAP?`)) return
     setLoading(true)
     await onMarkReady(order.id)
     setLoading(false)
@@ -2314,24 +3316,33 @@ export function OrderCard({ order, onMarkReady }: Props) {
 
   return (
     <div className={cn(
-      'flex flex-col rounded-xl border-2 p-5 min-w-[290px] max-w-[330px] shrink-0',
+      'flex flex-col rounded-xl border-2 p-4 md:p-5',
+      'w-full sm:min-w-[270px] sm:max-w-[320px] shrink-0',
       style.bg, style.border, style.blink && 'animate-pulse'
     )}>
 
-      {/* Header — nomor order, meja, nama pembeli, timer */}
+      {/* Header card */}
       <div className="flex justify-between mb-3">
         <div>
-          <div className="text-4xl font-black">{order.order_number}</div>
-          <div className="text-xl font-bold text-gray-300">Meja {order.table_number}</div>
-          {/* Nama pembeli — tampilkan kalau ada */}
+          <div className="text-3xl md:text-4xl font-black">{order.order_number}</div>
+          <div className="text-lg md:text-xl font-bold text-gray-300">
+            Meja {order.table_number}
+          </div>
           {order.customer_name && (
-            <div className="text-sm text-gray-400 mt-0.5">👤 {order.customer_name}</div>
+            <div className="text-sm text-gray-400 mt-0.5">
+              👤 {order.customer_name}
+            </div>
+          )}
+          {/* V3 NEW: nama kasir yang melayani */}
+          {order.served_by_name && (
+            <div className="text-xs text-gray-500 mt-0.5">
+              🧑‍💼 {order.served_by_name}
+            </div>
           )}
         </div>
         <div className="text-right shrink-0 ml-2">
           <div className={cn('text-2xl font-black', style.text)}>{style.label}</div>
           <div className="text-xs text-gray-500 mt-0.5">{formatTime(order.created_at)}</div>
-          {/* Badge tipe order — DINE_IN atau TAKEAWAY */}
           <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded-full ${
             order.order_type === 'TAKEAWAY'
               ? 'bg-blue-900 text-blue-400'
@@ -2342,16 +3353,14 @@ export function OrderCard({ order, onMarkReady }: Props) {
         </div>
       </div>
 
-      {/* Progress ceklis — "2/3 selesai" */}
-      <div className="flex items-center justify-between mb-2">
+      {/* Progress bar */}
+      <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs text-gray-500">Progress masak</span>
         <span className={`text-xs font-bold ${allReady ? 'text-green-400' : 'text-gray-400'}`}>
           {readyCount}/{items.length}
         </span>
       </div>
-
-      {/* Progress bar visual */}
-      <div className="h-1.5 bg-gray-800 rounded-full mb-4 overflow-hidden">
+      <div className="h-1.5 bg-gray-800 rounded-full mb-3 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
             allReady ? 'bg-green-500' : 'bg-orange-500'
@@ -2360,39 +3369,34 @@ export function OrderCard({ order, onMarkReady }: Props) {
         />
       </div>
 
-      <div className="h-px bg-gray-700 mb-4"/>
+      <div className="h-px bg-gray-700 mb-3"/>
 
-      {/* Daftar item dengan ceklis per item */}
-      <div className="flex-1 space-y-2 mb-5">
+      {/* Daftar item + ceklis */}
+      <div className="flex-1 space-y-2 mb-4">
         {items.map(item => (
           <button
             key={item.id}
             onClick={() => handleToggleItem(item.id, item.is_ready)}
             className={cn(
-              'w-full flex gap-3 items-start p-2 rounded-lg text-left transition-all',
+              'w-full flex gap-3 items-start p-2 rounded-lg text-left transition-all active:scale-95',
               item.is_ready
                 ? 'bg-green-950/50 opacity-60'
-                : 'bg-gray-800/40 hover:bg-gray-700/40 active:scale-98'
+                : 'bg-gray-800/40 hover:bg-gray-700/40'
             )}
           >
-            {/* Checkbox visual */}
             <div className={cn(
               'w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all',
-              item.is_ready
-                ? 'bg-green-500 border-green-500'
-                : 'border-gray-600'
+              item.is_ready ? 'bg-green-500 border-green-500' : 'border-gray-600'
             )}>
               {item.is_ready && <span className="text-white text-xs font-black">✓</span>}
             </div>
-
             <div className="flex-1">
               <div className={cn(
-                'text-lg font-bold transition-all',
+                'text-base md:text-lg font-bold transition-all',
                 item.is_ready ? 'line-through text-gray-600' : 'text-white'
               )}>
                 {item.quantity}× {item.menu_name}
               </div>
-              {/* Catatan item — kalau ada */}
               {item.notes && (
                 <div className="text-sm text-yellow-400 italic mt-0.5">⚠️ {item.notes}</div>
               )}
@@ -2401,12 +3405,12 @@ export function OrderCard({ order, onMarkReady }: Props) {
         ))}
       </div>
 
-      {/* Tombol SIAP SAJI — disable kalau belum semua item diceklis */}
+      {/* Tombol SIAP SAJI */}
       <button
         onClick={handleReady}
         disabled={!allReady || loading}
         className={cn(
-          'w-full py-4 rounded-xl text-lg font-black uppercase tracking-wider',
+          'w-full py-3 md:py-4 rounded-xl text-base md:text-lg font-black uppercase tracking-wider',
           'transition-all active:scale-95',
           allReady && !loading
             ? 'bg-green-500 hover:bg-green-400 text-white'
@@ -2428,20 +3432,27 @@ export function OrderCard({ order, onMarkReady }: Props) {
 <file path="src/components/pos/CartPanel.tsx">
 'use client'
 // src/components/pos/CartPanel.tsx
-// UPDATE dari sebelumnya:
-// - Tambah input nama pembeli (customer_name)
-// - Tambah pilihan Makan di Tempat vs Bungkus (order_type)
-// - Tambah tombol untuk input catatan per item (notes)
-// - Update handleCheckout untuk kirim field baru ke DB
+// V3 UPDATE:
+// - Tambah served_by_name (dari prop)
+// - Untuk QRIS: buat order PENDING_PAYMENT → call Midtrans → tampilkan QR
+// - Untuk Cash: input "uang diterima" → hitung kembalian
+// - Setelah checkout berhasil: tombol cetak struk → ReceiptModal
+// - Responsive: padding dan ukuran tombol lebih baik di mobile
 
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCartStore } from '@/store/cart.store'
 import { supabase } from '@/lib/supabase'
 import { formatRupiah } from '@/lib/utils'
-import type { OrderType } from '@/types/database'
+import { ReceiptModal } from './ReceiptModal'
+import type { Order, OrderType } from '@/types/database'
 
-export function CartPanel() {
+interface Props {
+  servedByName: string   // nama kasir yang sedang login
+  servedById:   string   // user id kasir
+}
+
+export function CartPanel({ servedByName, servedById }: Props) {
   const {
     items, tableNumber, paymentMethod, customerName, orderType,
     decrementItem, removeItem, setTableNumber, setPaymentMethod,
@@ -2449,202 +3460,367 @@ export function CartPanel() {
     clearCart, getTotal, isReadyToCheckout,
   } = useCartStore()
 
-  const [submitting, setSubmitting] = useState(false)
-  // Track item mana yang sedang dibuka input notesnya
-  const [editNotesId, setEditNotesId] = useState<string | null>(null)
+  const [submitting,    setSubmitting]    = useState(false)
+  const [editNotesId,   setEditNotesId]   = useState<string | null>(null)
+  const [cashReceived,  setCashReceived]  = useState('')       // input uang cash
+  const [lastOrder,     setLastOrder]     = useState<Order | null>(null) // untuk struk
+  const [showReceipt,   setShowReceipt]   = useState(false)
+  const [qrisData,      setQrisData]      = useState<{qrString: string; orderId: string} | null>(null)
+
+  const total    = getTotal()
+  const cashNum  = parseFloat(cashReceived) || 0
+  const change   = cashNum - total
 
   const handleCheckout = async () => {
     if (!isReadyToCheckout() || submitting) return
+
+    // Validasi cash: uang yang diterima harus >= total
+    if (paymentMethod === 'CASH' && cashNum > 0 && cashNum < total) {
+      toast.error('Uang yang diterima kurang dari total!')
+      return
+    }
+
     setSubmitting(true)
-
     try {
-      // Step 1: INSERT ke tabel orders — sekarang dengan customer_name & order_type
-      const { data: order, error: e1 } = await supabase
-        .from('orders')
-        .insert({
-          table_number:   tableNumber,
-          customer_name:  customerName,   // ← field baru
-          order_type:     orderType,       // ← field baru
-          total_price:    getTotal(),
-          payment_method: paymentMethod,
-        })
-        .select()
-        .single()
-      if (e1) throw e1
-
-      // Step 2: INSERT semua item sekaligus
-      const { error: e2 } = await supabase.from('order_items').insert(
-        items.map(i => ({
-          order_id:   order.id,
-          menu_id:    i.menuId,
-          menu_name:  i.menuName,
-          unit_price: i.unitPrice,
-          quantity:   i.quantity,
-          notes:      i.notes,   // catatan per item
-        }))
-      )
-      if (e2) throw e2
-
-      // Step 3: Berhasil — bersihkan cart
-      clearCart()
-      toast.success(`✅ ${order.order_number} dikirim ke dapur!`, {
-        description: `${customerName || 'Tanpa nama'} · Meja ${tableNumber} · ${formatRupiah(getTotal())} via ${paymentMethod}`,
-      })
-    } catch {
-      toast.error('❌ Gagal submit — cek koneksi internet')
+      if (paymentMethod === 'CASH') {
+        await checkoutCash()
+      } else {
+        await checkoutQris()
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('❌ Gagal checkout — cek koneksi')
     } finally {
       setSubmitting(false)
     }
   }
 
+  const checkoutCash = async () => {
+    // Buat order langsung PENDING (langsung ke dapur)
+    const { data: order, error: e1 } = await supabase
+      .from('orders')
+      .insert({
+        table_number:    tableNumber,
+        customer_name:   customerName,
+        order_type:      orderType,
+        total_price:     total,
+        payment_method:  'CASH',
+        status:          'PENDING',
+        served_by:       servedById   || null,
+        served_by_name:  servedByName || '',
+      })
+      .select('*, order_items(*)')
+      .single()
+    if (e1) throw e1
+
+    const { error: e2 } = await supabase.from('order_items').insert(
+      items.map(i => ({
+        order_id:   order.id,
+        menu_id:    i.menuId,
+        menu_name:  i.menuName,
+        unit_price: i.unitPrice,
+        quantity:   i.quantity,
+        notes:      i.notes,
+      }))
+    )
+    if (e2) throw e2
+
+    // Fetch order lengkap dengan items untuk struk
+    const { data: fullOrder } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('id', order.id)
+      .single()
+
+    toast.success(`✅ ${order.order_number} dikirim ke dapur!`)
+    setLastOrder(fullOrder as Order)
+    setShowReceipt(true)
+    clearCart()
+    setCashReceived('')
+  }
+
+  const checkoutQris = async () => {
+    // Step 1: buat order dengan status PENDING_PAYMENT
+    const { data: order, error: e1 } = await supabase
+      .from('orders')
+      .insert({
+        table_number:    tableNumber,
+        customer_name:   customerName,
+        order_type:      orderType,
+        total_price:     total,
+        payment_method:  'QRIS',
+        status:          'PENDING_PAYMENT',
+        served_by:       servedById   || null,
+        served_by_name:  servedByName || '',
+      })
+      .select()
+      .single()
+    if (e1) throw e1
+
+    const { error: e2 } = await supabase.from('order_items').insert(
+      items.map(i => ({
+        order_id:   order.id,
+        menu_id:    i.menuId,
+        menu_name:  i.menuName,
+        unit_price: i.unitPrice,
+        quantity:   i.quantity,
+        notes:      i.notes,
+      }))
+    )
+    if (e2) throw e2
+
+    // Step 2: call API route untuk generate QR Midtrans
+    const res = await fetch('/api/midtrans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId:     order.order_number,
+        grossAmount: total,
+        dbOrderId:   order.id,
+      }),
+    })
+
+    if (!res.ok) {
+      // Kalau Midtrans gagal, update order ke CANCELLED
+      await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', order.id)
+      throw new Error('Midtrans gagal generate QR')
+    }
+
+    const { qrString } = await res.json()
+    // Tampilkan QR code — pelanggan scan, setelah bayar webhook akan update status ke PENDING
+    setQrisData({ qrString, orderId: order.order_number })
+    clearCart()
+    toast.info('📱 Scan QR untuk membayar', { duration: 5000 })
+  }
+
+  // Kalau QR sudah dibayar (user tutup modal QR)
+  const handleQrisClose = () => {
+    setQrisData(null)
+    toast.success('Pembayaran diproses, pesanan dikirim ke dapur setelah konfirmasi!')
+  }
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header cart */}
-      <div className="px-4 py-3 border-b border-gray-800 flex justify-between items-center">
-        <h2 className="font-bold text-sm">🛒 Pesanan</h2>
-        {items.length > 0 && (
-          <button onClick={clearCart} className="text-xs text-red-400 hover:text-red-300">
-            Kosongkan
-          </button>
-        )}
-      </div>
+    <>
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-gray-800 flex justify-between items-center">
+          <h2 className="font-bold text-sm">🛒 Pesanan</h2>
+          {items.length > 0 && (
+            <button
+              onClick={clearCart}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              Kosongkan
+            </button>
+          )}
+        </div>
 
-      {/* List item di cart */}
-      <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
-        {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-600 p-4">
-            <span className="text-5xl mb-3">🛒</span>
-            <p className="text-sm text-center">Tap menu untuk tambah pesanan</p>
-          </div>
-        ) : (
-          items.map(item => (
-            <div key={item.menuId} className="px-4 py-3">
-              <div className="flex justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{item.menuName}</p>
-                  <p className="text-xs text-orange-400">{formatRupiah(item.unitPrice)}</p>
+        {/* List item */}
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
+          {items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 p-4">
+              <span className="text-5xl mb-3">🛒</span>
+              <p className="text-sm text-center">Tap menu untuk tambah pesanan</p>
+            </div>
+          ) : (
+            items.map(item => (
+              <div key={item.menuId} className="px-3 py-2.5">
+                <div className="flex justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{item.menuName}</p>
+                    <p className="text-xs text-orange-400">{formatRupiah(item.unitPrice)}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => decrementItem(item.menuId)}
+                      className="w-6 h-6 rounded bg-gray-700 text-white font-bold text-sm"
+                    >−</button>
+                    <span className="w-5 text-center font-bold text-sm">{item.quantity}</span>
+                    <button
+                      onClick={() => useCartStore.getState().setQuantity(item.menuId, item.quantity + 1)}
+                      className="w-6 h-6 rounded bg-gray-700 text-white font-bold text-sm"
+                    >+</button>
+                    <button
+                      onClick={() => removeItem(item.menuId)}
+                      className="w-6 h-6 rounded bg-gray-800 text-red-400 text-xs ml-0.5"
+                    >✕</button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => decrementItem(item.menuId)}
-                    className="w-7 h-7 rounded bg-gray-700 text-white font-bold text-sm"
-                  >−</button>
-                  <span className="w-5 text-center font-bold text-sm">{item.quantity}</span>
-                  <button
-                    onClick={() => useCartStore.getState().setQuantity(item.menuId, item.quantity + 1)}
-                    className="w-7 h-7 rounded bg-gray-700 text-white font-bold text-sm"
-                  >+</button>
-                  <button
-                    onClick={() => removeItem(item.menuId)}
-                    className="w-7 h-7 rounded bg-gray-800 text-red-400 text-xs"
-                  >✕</button>
-                </div>
-              </div>
-
-              {/* Tombol untuk tambah/edit catatan item */}
-              {editNotesId === item.menuId ? (
-                <div className="mt-2 flex gap-2">
+                {/* Input catatan per item */}
+                {editNotesId === item.menuId ? (
                   <input
                     autoFocus
                     placeholder="Catatan (tidak pedas, dll...)"
                     value={item.notes}
                     onChange={e => setItemNotes(item.menuId, e.target.value)}
                     onBlur={() => setEditNotesId(null)}
-                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1.5
+                    className="mt-1.5 w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5
                       text-xs text-white placeholder-gray-600 focus:outline-none focus:border-orange-500"
                   />
+                ) : (
+                  <button
+                    onClick={() => setEditNotesId(item.menuId)}
+                    className="mt-1 text-xs text-gray-600 hover:text-gray-400"
+                  >
+                    {item.notes ? `📝 ${item.notes}` : '+ Catatan'}
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Form checkout */}
+        <div className="border-t border-gray-800 px-3 py-3 space-y-2.5">
+          {/* Total */}
+          <div className="flex justify-between items-baseline">
+            <span className="text-gray-400 text-sm">Total</span>
+            <span className="text-xl font-black">{formatRupiah(total)}</span>
+          </div>
+
+          {/* Nama pembeli */}
+          <input
+            placeholder="Nama pembeli (opsional)"
+            value={customerName}
+            onChange={e => setCustomerName(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+              text-sm focus:outline-none focus:border-orange-500"
+          />
+
+          {/* Nomor meja */}
+          <input
+            placeholder="Nomor Meja *"
+            value={tableNumber}
+            onChange={e => setTableNumber(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+              text-sm focus:outline-none focus:border-orange-500"
+          />
+
+          {/* Tipe order */}
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ['DINE_IN',  '🪑 Di Sini'],
+              ['TAKEAWAY', '🥡 Bungkus'],
+            ] as [OrderType, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setOrderType(val)}
+                className={`py-2 rounded-lg text-xs font-bold transition-colors ${
+                  orderType === val
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Metode pembayaran */}
+          <div className="grid grid-cols-2 gap-2">
+            {(['CASH', 'QRIS'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setPaymentMethod(m)}
+                className={`py-2 rounded-lg text-sm font-bold transition-colors ${
+                  paymentMethod === m
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                {m === 'CASH' ? '💵 Cash' : '📱 QRIS'}
+              </button>
+            ))}
+          </div>
+
+          {/* Input uang cash + info kembalian */}
+          {paymentMethod === 'CASH' && (
+            <div>
+              <input
+                type="number"
+                placeholder="Uang diterima (opsional)"
+                value={cashReceived}
+                onChange={e => setCashReceived(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2
+                  text-sm focus:outline-none focus:border-orange-500"
+              />
+              {cashNum > 0 && total > 0 && (
+                <div className={`mt-1.5 text-xs font-bold text-right ${
+                  change >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {change >= 0
+                    ? `Kembalian: ${formatRupiah(change)}`
+                    : `Kurang: ${formatRupiah(-change)}`
+                  }
                 </div>
-              ) : (
-                <button
-                  onClick={() => setEditNotesId(item.menuId)}
-                  className="mt-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors"
-                >
-                  {item.notes ? `📝 ${item.notes}` : '+ Catatan'}
-                </button>
               )}
             </div>
-          ))
-        )}
+          )}
+
+          {/* Nama kasir yang melayani — info saja, tidak bisa diubah */}
+          {servedByName && (
+            <div className="text-xs text-gray-600 text-right">
+              Dilayani oleh: <span className="text-gray-400">{servedByName}</span>
+            </div>
+          )}
+
+          {/* Tombol checkout */}
+          <button
+            onClick={handleCheckout}
+            disabled={!isReadyToCheckout() || submitting}
+            className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-wider
+              transition-colors ${
+                isReadyToCheckout() && !submitting
+                  ? 'bg-orange-600 hover:bg-orange-500 text-white'
+                  : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+              }`}
+          >
+            {submitting
+              ? 'Memproses...'
+              : paymentMethod === 'QRIS'
+                ? '📱 Generate QR & Kirim'
+                : '✓ Bayar & Kirim ke Dapur'
+            }
+          </button>
+        </div>
       </div>
 
-      {/* Bagian bawah — input info order + tombol checkout */}
-      <div className="border-t border-gray-800 px-4 py-4 space-y-3">
-        {/* Total harga */}
-        <div className="flex justify-between items-baseline">
-          <span className="text-gray-400 text-sm">Total</span>
-          <span className="text-xl font-black">{formatRupiah(getTotal())}</span>
-        </div>
-
-        {/* Nama pembeli — opsional tapi berguna untuk KDS */}
-        <input
-          placeholder="Nama pembeli (opsional)"
-          value={customerName}
-          onChange={e => setCustomerName(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
-            text-sm focus:outline-none focus:border-orange-500"
+      {/* Modal struk */}
+      {showReceipt && lastOrder && (
+        <ReceiptModal
+          order={lastOrder}
+          cashReceived={cashNum > 0 ? cashNum : undefined}
+          onClose={() => { setShowReceipt(false); setLastOrder(null) }}
         />
+      )}
 
-        {/* Nomor meja — wajib */}
-        <input
-          placeholder="Nomor Meja *"
-          value={tableNumber}
-          onChange={e => setTableNumber(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5
-            text-sm focus:outline-none focus:border-orange-500"
-        />
-
-        {/* Makan di tempat vs Bungkus */}
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            ['DINE_IN',  '🪑 Makan di Sini'],
-            ['TAKEAWAY', '🥡 Bungkus'],
-          ] as [OrderType, string][]).map(([val, label]) => (
+      {/* Modal QR Midtrans */}
+      {qrisData && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center text-black">
+            <h3 className="font-bold text-lg mb-1">Scan QRIS</h3>
+            <p className="text-sm text-gray-500 mb-4">Order: {qrisData.orderId}</p>
+            {/* QR code dari QRIS string menggunakan Google Chart API */}
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrisData.qrString)}`}
+              alt="QR Code"
+              className="mx-auto mb-4 rounded-lg"
+              width={200}
+              height={200}
+            />
+            <p className="text-xs text-gray-500 mb-4">
+              Pesanan akan otomatis masuk dapur setelah pembayaran berhasil
+            </p>
             <button
-              key={val}
-              onClick={() => setOrderType(val)}
-              className={`py-2.5 rounded-lg text-xs font-bold transition-colors ${
-                orderType === val
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
+              onClick={handleQrisClose}
+              className="w-full py-3 bg-orange-600 text-white font-bold rounded-xl text-sm"
             >
-              {label}
+              Selesai
             </button>
-          ))}
+          </div>
         </div>
-
-        {/* Metode pembayaran */}
-        <div className="grid grid-cols-2 gap-2">
-          {(['CASH', 'QRIS'] as const).map(m => (
-            <button
-              key={m}
-              onClick={() => setPaymentMethod(m)}
-              className={`py-2.5 rounded-lg text-sm font-bold transition-colors ${
-                paymentMethod === m
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              {m === 'CASH' ? '💵 Cash' : '📱 QRIS'}
-            </button>
-          ))}
-        </div>
-
-        {/* Tombol checkout */}
-        <button
-          onClick={handleCheckout}
-          disabled={!isReadyToCheckout() || submitting}
-          className={`w-full py-4 rounded-xl text-base font-black uppercase tracking-wider
-            transition-colors ${
-              isReadyToCheckout() && !submitting
-                ? 'bg-orange-600 hover:bg-orange-500 text-white'
-                : 'bg-gray-800 text-gray-600 cursor-not-allowed'
-            }`}
-        >
-          {submitting ? 'Memproses...' : '✓ Bayar & Kirim ke Dapur'}
-        </button>
-      </div>
-    </div>
+      )}
+    </>
   )
 }
 </file>
@@ -2652,10 +3828,10 @@ export function CartPanel() {
 <file path="src/components/pos/MenuCard.tsx">
 'use client'
 // src/components/pos/MenuCard.tsx
-// UPDATE dari sebelumnya:
-// - Hapus tampilan gambar (image_url sudah tidak ada di DB)
-// - Tambah badge stok — hijau kalau banyak, kuning kalau ≤5, merah kalau 0
-// - Kalau stok = 0, otomatis disable meski is_available = true
+// V3 UPDATE:
+// - HAPUS semua UI gambar/image placeholder — bersih tanpa kotak kosong
+// - Card sekarang lebih compact: hanya nama, harga, stok
+// - Responsive untuk layar kecil
 
 import { useCartStore } from '@/store/cart.store'
 import { formatRupiah } from '@/lib/utils'
@@ -2663,63 +3839,77 @@ import type { Menu } from '@/types/database'
 
 export function MenuCard({ menu }: { menu: Menu }) {
   const { addItem, items } = useCartStore()
-  const cartQty  = items.find(i => i.menuId === menu.id)?.quantity ?? 0
-
-  // Menu tidak bisa dipesan kalau habis stok ATAU is_available = false
+  const cartQty   = items.find(i => i.menuId === menu.id)?.quantity ?? 0
   const outOfStock = menu.stock <= 0
   const disabled   = !menu.is_available || outOfStock
 
-  // Warna badge stok
-  const stockBadge = outOfStock
-    ? 'bg-red-900 text-red-400'
+  const stockColor = outOfStock
+    ? 'text-red-400'
     : menu.stock <= 5
-      ? 'bg-yellow-900 text-yellow-400'
-      : 'bg-green-900 text-green-400'
+      ? 'text-yellow-400'
+      : 'text-green-400'
 
   return (
     <button
       onClick={() => !disabled && addItem(menu)}
       disabled={disabled}
-      className={`relative flex flex-col rounded-xl border text-left
-        transition-all active:scale-95 overflow-hidden
+      className={`
+        relative flex flex-col justify-between rounded-xl border text-left
+        transition-all active:scale-95 p-3 min-h-[90px]
         ${disabled
           ? 'bg-gray-900 border-gray-800 opacity-50 cursor-not-allowed'
-          : 'bg-gray-800 border-gray-700 hover:border-orange-500 cursor-pointer'}`}
+          : 'bg-gray-800 border-gray-700 hover:border-orange-500 cursor-pointer'
+        }
+      `}
     >
-      {/* Area ikon (ganti gambar dengan emoji/warna) */}
-      <div className="w-full aspect-square bg-gray-700 flex items-center justify-center relative">
-        <span className="text-4xl text-gray-500">🍽️</span>
+      {/* Nama menu */}
+      <p className="text-sm font-semibold text-white leading-snug line-clamp-2 mb-2">
+        {menu.name}
+      </p>
 
-        {/* Overlay "HABIS" kalau tidak tersedia */}
-        {disabled && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-xs font-bold text-red-400 bg-red-950 px-2 py-1 rounded">
-              {outOfStock ? 'STOK HABIS' : 'TIDAK TERSEDIA'}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="p-2.5 flex flex-col gap-1">
-        <p className="text-sm font-semibold text-white line-clamp-2">{menu.name}</p>
+      {/* Harga dan stok */}
+      <div>
         <p className="text-sm font-bold text-orange-400">{formatRupiah(menu.price)}</p>
-
-        {/* Badge stok */}
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${stockBadge}`}>
-          Stok: {menu.stock}
-        </span>
+        <p className={`text-xs font-medium mt-0.5 ${stockColor}`}>
+          {outOfStock ? 'Habis' : `Stok: ${menu.stock}`}
+        </p>
       </div>
 
-      {/* Badge jumlah di cart */}
+      {/* Overlay kalau tidak tersedia */}
+      {disabled && (
+        <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
+          <span className="text-xs font-bold text-red-300 bg-red-950/80 px-2 py-1 rounded">
+            {outOfStock ? 'HABIS' : 'N/A'}
+          </span>
+        </div>
+      )}
+
+      {/* Badge qty di cart */}
       {cartQty > 0 && (
-        <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-orange-500
-          flex items-center justify-center text-xs font-black text-white">
+        <div className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-orange-500
+          flex items-center justify-center text-xs font-black text-white shadow-lg">
           {cartQty}
         </div>
       )}
     </button>
   )
 }
+</file>
+
+<file path="src/lib/supabase.ts">
+import { createBrowserClient } from '@supabase/ssr'
+
+// Singleton — satu instance untuk seluruh aplikasi
+// NEXT_PUBLIC_ agar bisa diakses dari browser (client component)
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  // {
+  //   realtime: {
+  //     timeout: 30000, // 30 detik — lebih toleran di jaringan restoran
+  //   },
+  // }
+)
 </file>
 
 <file path="src/store/cart.store.ts">
@@ -2836,64 +4026,87 @@ export const useCartStore = create<CartStore>()((set, get) => ({
 
 <file path="src/types/database.ts">
 // src/types/database.ts
-// UPDATE: tambah OrderType, stock di Menu, customer_name + order_type di Order,
-//         is_ready di OrderItem, Role untuk profile user
+// V3 UPDATE:
+// - OrderStatus: tambah PENDING_PAYMENT (untuk alur Midtrans QRIS)
+// - Order: tambah served_by, served_by_name
+// - Profile: tambah display_name
+// - Tambah interface Category dan StoreSettings (baru)
 
-export type OrderStatus    = 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED'
-export type PaymentMethod  = 'CASH' | 'QRIS'
-export type OrderType      = 'DINE_IN' | 'TAKEAWAY'  // ← baru
-export type UserRole       = 'OWNER' | 'EMPLOYEE'    // ← baru
+export type OrderStatus   = 'PENDING_PAYMENT' | 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED'
+export type PaymentMethod = 'CASH' | 'QRIS'
+export type OrderType     = 'DINE_IN' | 'TAKEAWAY'
+export type UserRole      = 'OWNER' | 'EMPLOYEE'
 
-// Profile user — tersimpan di tabel profiles, terhubung ke auth.users
+// Profile user — terhubung ke auth.users
 export interface Profile {
+  id:           string
+  role:         UserRole
+  display_name: string  // ← baru: nama yang tampil di KDS dan struk
+  created_at:   string
+}
+
+// Kategori menu — sekarang bisa diatur dari admin (tidak hardcode lagi)
+export interface Category {
   id:         string
-  role:       UserRole
+  name:       string
+  sort_order: number
   created_at: string
+}
+
+// Setting toko — untuk struk dan tampilan
+export interface StoreSettings {
+  id:            number  // selalu 1
+  store_name:    string
+  store_address: string
+  store_social:  string   // sosmed, e.g. "@nama_ig"
+  footer_text:   string   // teks penutup di struk
+  updated_at:    string
 }
 
 export interface Menu {
   id:           string
   name:         string
   price:        number
-  category:     string
-  stock:        number      // ← baru: jumlah stok tersedia
+  category:     string   // nama kategori (string, bukan FK untuk simplicity)
+  stock:        number
   is_available: boolean
   created_at:   string
-  // image_url dihapus — hemat database
 }
 
 export interface OrderItem {
-  id:       string
-  order_id: string
-  menu_id:  string | null
+  id:         string
+  order_id:   string
+  menu_id:    string | null
   menu_name:  string   // snapshot nama saat pesan
   unit_price: number   // snapshot harga saat pesan
   quantity:   number
   notes:      string
-  is_ready:   boolean  // ← baru: ceklis per item di KDS
+  is_ready:   boolean  // ceklis per item di KDS
 }
 
 export interface Order {
-  id:             string
-  order_number:   string
-  table_number:   string
-  customer_name:  string       // ← baru: nama pembeli
-  order_type:     OrderType    // ← baru: DINE_IN atau TAKEAWAY
-  total_price:    number
-  payment_method: PaymentMethod
-  status:         OrderStatus
-  created_at:     string
-  updated_at:     string
-  order_items?:   OrderItem[]  // tersedia kalau di-join saat fetch
+  id:              string
+  order_number:    string
+  table_number:    string
+  customer_name:   string
+  order_type:      OrderType
+  total_price:     number
+  payment_method:  PaymentMethod
+  status:          OrderStatus
+  served_by:       string | null   // ← baru: user id kasir
+  served_by_name:  string          // ← baru: snapshot nama kasir
+  created_at:      string
+  updated_at:      string
+  order_items?:    OrderItem[]
 }
 
-// CartItem — hanya ada di memory (Zustand), tidak disimpan ke DB
+// CartItem — hanya di memory Zustand, tidak disimpan ke DB
 export interface CartItem {
-  menuId:     string
-  menuName:   string
-  unitPrice:  number
-  quantity:   number
-  notes:      string  // catatan per item (sudah ada sebelumnya, sekarang bisa diinput)
+  menuId:    string
+  menuName:  string
+  unitPrice: number
+  quantity:  number
+  notes:     string
 }
 </file>
 
@@ -2943,6 +4156,7 @@ next-env.d.ts
 .env.local
 
 next-features.md
+penjelasan-kode.html
 </file>
 
 </files>
