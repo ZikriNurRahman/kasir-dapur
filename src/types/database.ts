@@ -1,38 +1,55 @@
 // src/types/database.ts
-// V3 UPDATE:
-// - OrderStatus: tambah PENDING_PAYMENT (untuk alur Midtrans QRIS)
-// - Order: tambah served_by, served_by_name
-// - Profile: tambah display_name
-// - Tambah interface Category dan StoreSettings (baru)
+// V4 UPDATE:
+// - Tambah Branch, EmployeeCredential, OrderNotification
+// - Profile: tambah branch_id, display_name, username
+// - Order: tambah branch_id, cash_received
+// - Roles: OWNER | ADMIN | EMPLOYEE
 
 export type OrderStatus   = 'PENDING_PAYMENT' | 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED'
 export type PaymentMethod = 'CASH' | 'QRIS'
 export type OrderType     = 'DINE_IN' | 'TAKEAWAY'
-export type UserRole      = 'OWNER' | 'EMPLOYEE'
+export type UserRole      = 'OWNER' | 'ADMIN' | 'EMPLOYEE'
+// OWNER  → bisa kelola semua cabang
+// ADMIN  → kelola satu cabang (menu, laporan, pegawai cabang itu)
+// EMPLOYEE → hanya bisa POS dan KDS di cabang yang ditugaskan
 
-// Profile user — terhubung ke auth.users
+// Cabang toko
+export interface Branch {
+  id:         string
+  owner_id:   string
+  name:       string
+  address:    string
+  slug:       string
+  is_active:  boolean
+  created_at: string
+}
+
+// Profile user Supabase Auth
 export interface Profile {
   id:           string
   role:         UserRole
-  display_name: string  // ← baru: nama yang tampil di KDS dan struk
+  display_name: string      // nama yang tampil di header, KDS, struk
+  branch_id:    string | null  // cabang yang ditugaskan (null = owner semua cabang)
+  username:     string | null  // untuk login pegawai tanpa email
   created_at:   string
 }
 
-// Kategori menu — sekarang bisa diatur dari admin (tidak hardcode lagi)
+// Kategori menu per cabang
 export interface Category {
   id:         string
   name:       string
   sort_order: number
+  branch_id:  string
   created_at: string
 }
 
-// Setting toko — untuk struk dan tampilan
+// Setting toko — satu row per cabang
 export interface StoreSettings {
-  id:            number  // selalu 1
+  id:            number
   store_name:    string
   store_address: string
-  store_social:  string   // sosmed, e.g. "@nama_ig"
-  footer_text:   string   // teks penutup di struk
+  store_social:  string
+  footer_text:   string
   updated_at:    string
 }
 
@@ -40,9 +57,10 @@ export interface Menu {
   id:           string
   name:         string
   price:        number
-  category:     string   // nama kategori (string, bukan FK untuk simplicity)
+  category:     string
   stock:        number
   is_available: boolean
+  branch_id:    string
   created_at:   string
 }
 
@@ -50,11 +68,11 @@ export interface OrderItem {
   id:         string
   order_id:   string
   menu_id:    string | null
-  menu_name:  string   // snapshot nama saat pesan
-  unit_price: number   // snapshot harga saat pesan
+  menu_name:  string
+  unit_price: number
   quantity:   number
   notes:      string
-  is_ready:   boolean  // ceklis per item di KDS
+  is_ready:   boolean
 }
 
 export interface Order {
@@ -66,14 +84,26 @@ export interface Order {
   total_price:     number
   payment_method:  PaymentMethod
   status:          OrderStatus
-  served_by:       string | null   // ← baru: user id kasir
-  served_by_name:  string          // ← baru: snapshot nama kasir
+  served_by:       string | null
+  served_by_name:  string
+  cash_received:   number   // ← V4: simpan di DB agar struk bisa dicetak kapanpun
+  branch_id:       string | null
   created_at:      string
   updated_at:      string
   order_items?:    OrderItem[]
 }
 
-// CartItem — hanya di memory Zustand, tidak disimpan ke DB
+// Notifikasi ke pelayan bahwa pesanan READY
+export interface OrderNotification {
+  id:         string
+  order_id:   string
+  user_id:    string
+  type:       string
+  is_read:    boolean
+  created_at: string
+  orders?:    Order  // joined
+}
+
 export interface CartItem {
   menuId:    string
   menuName:  string
