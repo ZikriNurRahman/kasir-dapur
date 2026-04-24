@@ -1,9 +1,6 @@
 'use client'
-// Halaman khusus OWNER:
-// - Lihat semua cabang
-// - Buat cabang baru
-// - Klik cabang → masuk admin panel cabang itu
-// - Kelola siapa admin di tiap cabang
+// src/app/home/owner/page.tsx
+// CHANGED: Tambah section "Daftar Owner" — info siapa saja yang punya role OWNER
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -17,13 +14,14 @@ export default function OwnerPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading,  setLoading]  = useState(true)
 
-  // Form buat cabang baru
-  const [showForm,    setShowForm]    = useState(false)
-  const [branchForm,  setBranchForm]  = useState({ name: '', address: '', slug: '' })
-  const [saving,      setSaving]      = useState(false)
+  const [showForm,   setShowForm]   = useState(false)
+  const [branchForm, setBranchForm] = useState({ name: '', address: '', slug: '' })
+  const [saving,     setSaving]     = useState(false)
 
-  // Admin per cabang
   const [branchAdmins, setBranchAdmins] = useState<Record<string, Profile[]>>({})
+
+  // CHANGED: State untuk daftar semua owner
+  const [owners, setOwners] = useState<Profile[]>([])
 
   useEffect(() => {
     const init = async () => {
@@ -48,7 +46,6 @@ export default function OwnerPage() {
     const ids = branchList.map(b => b.id)
     const { data } = await supabase.from('profiles').select('*')
       .in('branch_id', ids).eq('role', 'ADMIN')
-
     if (data) {
       const map: Record<string, Profile[]> = {}
       data.forEach((p: Profile) => {
@@ -60,7 +57,13 @@ export default function OwnerPage() {
     }
   }, [])
 
-  useEffect(() => { fetchBranches() }, [fetchBranches])
+  // CHANGED: Fetch semua profile yang punya role OWNER
+  const fetchOwners = useCallback(async () => {
+    const { data } = await supabase.from('profiles').select('*').eq('role', 'OWNER')
+    if (data) setOwners(data as Profile[])
+  }, [])
+
+  useEffect(() => { fetchBranches(); fetchOwners() }, [fetchBranches, fetchOwners])
   useEffect(() => { if (branches.length > 0) fetchAdminsForBranches(branches) }, [branches, fetchAdminsForBranches])
 
   const handleCreateBranch = async () => {
@@ -70,7 +73,6 @@ export default function OwnerPage() {
     setSaving(true)
     try {
       const slug = branchForm.slug.toLowerCase().replace(/\s+/g, '-')
-
       const { data, error } = await supabase.from('branches').insert({
         owner_id: userId,
         name:     branchForm.name,
@@ -80,12 +82,11 @@ export default function OwnerPage() {
 
       if (error) throw new Error(error.message)
 
-      // Buat store_settings default untuk cabang ini
       await supabase.from('store_settings').insert({
-        branch_id:    data.id,
-        store_name:   branchForm.name,
+        branch_id:     data.id,
+        store_name:    branchForm.name,
         store_address: branchForm.address,
-        footer_text:  'Terima kasih, sampai jumpa lagi! 🍽️',
+        footer_text:   'Terima kasih, sampai jumpa lagi! 🍽️',
       })
 
       toast.success(`Cabang "${branchForm.name}" berhasil dibuat!`)
@@ -107,12 +108,12 @@ export default function OwnerPage() {
   }
 
   const handleMasukCabang = (branchId: string) => {
-    // Owner masuk ke admin panel cabang ini
     router.push(`/home/admin?branch=${branchId}`)
   }
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
@@ -125,6 +126,26 @@ export default function OwnerPage() {
         </button>
       </div>
 
+      {/* CHANGED: Banner daftar owner — info siapa saja yang punya role OWNER */}
+      {owners.length > 0 && (
+        <div className="bg-gray-900 border border-purple-900/50 rounded-xl p-4 mb-6">
+          <p className="text-xs font-bold text-purple-400 mb-3">👑 Pemilik Akun (OWNER)</p>
+          <div className="flex flex-wrap gap-2">
+            {owners.map(o => (
+              <div key={o.id}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs
+                  ${o.id === userId
+                    ? 'bg-purple-900/60 border border-purple-700 text-purple-300'
+                    : 'bg-gray-800 text-gray-400'}`}>
+                <span className="font-bold">{o.display_name || o.username || 'Tanpa Nama'}</span>
+                {o.username && <span className="text-gray-600 font-mono">@{o.username}</span>}
+                {o.id === userId && <span className="text-purple-500">(Kamu)</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Form cabang baru */}
       {showForm && (
         <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 mb-6">
@@ -135,16 +156,14 @@ export default function OwnerPage() {
               <input value={branchForm.name}
                 onChange={e => setBranchForm({ ...branchForm, name: e.target.value })}
                 placeholder="Cabang Utama"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                  focus:outline-none focus:border-orange-500"/>
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Slug (ID unik) *</label>
               <input value={branchForm.slug}
                 onChange={e => setBranchForm({ ...branchForm, slug: e.target.value })}
                 placeholder="cabang-utama"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                  focus:outline-none focus:border-orange-500"/>
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
               <p className="text-xs text-gray-600 mt-1">Huruf kecil, gunakan tanda hubung</p>
             </div>
             <div className="md:col-span-2">
@@ -152,16 +171,14 @@ export default function OwnerPage() {
               <input value={branchForm.address}
                 onChange={e => setBranchForm({ ...branchForm, address: e.target.value })}
                 placeholder="Jl. Contoh No. 1, Padang"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                  focus:outline-none focus:border-orange-500"/>
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
             </div>
           </div>
           <div className="flex gap-2 justify-end mt-4">
             <button onClick={() => setShowForm(false)}
               className="px-4 py-2 bg-gray-700 rounded-lg text-sm">Batal</button>
             <button onClick={handleCreateBranch} disabled={saving}
-              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700
-                rounded-lg text-sm font-bold">
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 rounded-lg text-sm font-bold">
               {saving ? 'Menyimpan...' : 'Buat Cabang'}
             </button>
           </div>
@@ -184,8 +201,6 @@ export default function OwnerPage() {
             return (
               <div key={branch.id}
                 className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl p-5 transition-colors">
-
-                {/* Info cabang */}
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-bold text-white text-base">{branch.name}</h3>
@@ -200,7 +215,6 @@ export default function OwnerPage() {
                   </button>
                 </div>
 
-                {/* Admin yang bertugas */}
                 <div className="mb-4">
                   <p className="text-xs text-gray-500 mb-2">Admin bertugas:</p>
                   {admins.length === 0 ? (
@@ -217,10 +231,8 @@ export default function OwnerPage() {
                   )}
                 </div>
 
-                {/* Tombol masuk */}
                 <button onClick={() => handleMasukCabang(branch.id)}
-                  className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 rounded-lg
-                    text-sm font-bold transition-colors text-white">
+                  className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 rounded-lg text-sm font-bold transition-colors text-white">
                   Kelola Cabang →
                 </button>
               </div>

@@ -1,10 +1,7 @@
 'use client'
 // src/app/home/kds/page.tsx
-// V3 UPDATE:
-// - FIX: WebSocket tidak connect tanpa refresh → tambah reconnect logic
-// - FIX: order_items sekarang masuk supabase_realtime publication (via migration)
-// - NEW: bunyi notifikasi saat pesanan baru masuk (Web Audio API)
-// - NEW: tampilkan served_by_name di OrderCard
+// FIX: Realtime listener sekarang filter by branch_id — order cabang lain tidak masuk
+// FIX: Guard branch_id sebelum setup channel
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -14,19 +11,15 @@ import type { Order } from '@/types/database'
 export default function KDSPage() {
   const [orders,    setOrders]    = useState<Order[]>([])
   const [connected, setConnected] = useState(false)
+  // CHANGED: Simpan branchId di state supaya bisa dipakai di realtime filter
+  const [branchId,  setBranchId]  = useState<string | null>(null)
 
-  // AudioContext disimpan di ref — bisa dipakai berkali-kali tanpa re-create
   const audioCtxRef = useRef<AudioContext | null>(null)
-  // Ref untuk channel — dipakai di cleanup
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const channelRef  = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
-  // Init AudioContext saat pertama kali user interaksi dengan halaman
-  // Browser tidak boleh create AudioContext sebelum ada user gesture
   useEffect(() => {
     const init = () => {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext()
-      }
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
     }
     document.addEventListener('click',      init, { once: true })
     document.addEventListener('touchstart', init, { once: true })
@@ -36,105 +29,91 @@ export default function KDSPage() {
     }
   }, [])
 
-  // Bunyi dua nada naik — khas notifikasi dapur
   const playNewOrderSound = useCallback(() => {
     const ctx = audioCtxRef.current
     if (!ctx) return
-
     const playBeep = (startTime: number, frequency: number, duration = 0.25) => {
       const osc  = ctx.createOscillator()
       const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.type = 'sine'
-      osc.frequency.value = frequency
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'; osc.frequency.value = frequency
       gain.gain.setValueAtTime(0.4, startTime)
       gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
-      osc.start(startTime)
-      osc.stop(startTime + duration)
+      osc.start(startTime); osc.stop(startTime + duration)
     }
-
-    // Dua beep: 660Hz → 880Hz
     playBeep(ctx.currentTime,        660)
     playBeep(ctx.currentTime + 0.25, 880)
   }, [])
 
+  // CHANGED: fetchPending sekarang return branchId supaya bisa disimpan
   const fetchPending = useCallback(async () => {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
 
-  const { data: profile } = await supabase
-    .from('profiles').select('branch_id').eq('id', user.id).single()
+    const { data: profile } = await supabase
+      .from('profiles').select('branch_id').eq('id', user.id).single()
 
-  let query = supabase.from('orders').select('*, order_items(*)')
-    .eq('status', 'PENDING').order('created_at', { ascending: true })
+    const bid = profile?.branch_id || null
+    setBranchId(bid)
 
-  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
+    let query = supabase.from('orders').select('*, order_items(*)')
+      .eq('status', 'PENDING').order('created_at', { ascending: true })
 
-  const { data } = await query
-  if (data) setOrders(data as Order[])
-}, [])
-  const setupChannel = useCallback(() => {
-    // Hapus channel lama kalau ada
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-    }
+    if (bid) query = query.eq('branch_id', bid)
 
-    const channel = supabase
-      .channel('kds-realtime-v3')  // nama unik agar tidak bentrok dengan channel lama
+    const { data } = await query
+    if (data) setOrders(data as Order[])
 
-      // INSERT order baru dari kasir
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+    return bid
+  }, [])
+
+  const setupChannel = useCallback((bid: string | null) => {
+    if (channelRef.current) supabase.removeChannel(channelRef.current)
+
+    const channel = supabase.channel(`kds-realtime-${bid ?? 'global'}`)
+
+      .on('postgres_changes',
+        {
+          event: 'INSERT', schema: 'public', table: 'orders',
+          // CHANGED: filter by branch_id di level Supabase, bukan di handler
+          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
+        },
         async (payload) => {
-          // Hanya tampilkan order yang PENDING (bukan PENDING_PAYMENT)
           if (payload.new.status !== 'PENDING') return
-
-          // Fetch dengan join order_items
           const { data } = await supabase
-            .from('orders')
-            .select('*, order_items(*)')
-            .eq('id', payload.new.id)
-            .single()
-
+            .from('orders').select('*, order_items(*)')
+            .eq('id', payload.new.id).single()
           if (data) {
             setOrders(prev => [...prev, data as Order])
-            playNewOrderSound() // 🔔 bunyi!
+            playNewOrderSound()
           }
         }
       )
 
-      // UPDATE order — kalau status berubah dari PENDING_PAYMENT ke PENDING (setelah QRIS bayar)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+      .on('postgres_changes',
+        {
+          event: 'UPDATE', schema: 'public', table: 'orders',
+          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
+        },
         async (payload) => {
           if (payload.new.status === 'PENDING' && payload.old.status === 'PENDING_PAYMENT') {
-            // Order baru masuk setelah pembayaran QRIS berhasil
             const { data } = await supabase
-              .from('orders')
-              .select('*, order_items(*)')
-              .eq('id', payload.new.id)
-              .single()
-            if (data) {
-              setOrders(prev => [...prev, data as Order])
-              playNewOrderSound()
-            }
+              .from('orders').select('*, order_items(*)')
+              .eq('id', payload.new.id).single()
+            if (data) { setOrders(prev => [...prev, data as Order]); playNewOrderSound() }
           } else if (payload.new.status !== 'PENDING') {
-            // Order selesai/dibatalkan → hapus dari board
             setOrders(prev => prev.filter(o => o.id !== payload.new.id))
           }
         }
       )
 
-      // UPDATE order_items — ceklis per item dari OrderCard
-      // Ini hanya berfungsi setelah menjalankan migration-v3.sql
-      // (menambahkan order_items ke supabase_realtime publication)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' },
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'order_items' },
         (payload) => {
           setOrders(prev => prev.map(order => ({
             ...order,
             order_items: order.order_items?.map(item =>
-              item.id === payload.new.id
-                ? { ...item, is_ready: payload.new.is_ready }
-                : item
+              item.id === payload.new.id ? { ...item, is_ready: payload.new.is_ready } : item
             ),
           })))
         }
@@ -145,8 +124,7 @@ export default function KDSPage() {
           setConnected(true)
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           setConnected(false)
-          // Coba reconnect setelah 3 detik
-          setTimeout(() => setupChannel(), 3_000)
+          setTimeout(() => setupChannel(bid), 3_000)
         } else if (status === 'CLOSED') {
           setConnected(false)
         }
@@ -155,41 +133,35 @@ export default function KDSPage() {
     channelRef.current = channel
   }, [playNewOrderSound])
 
+  // CHANGED: Init flow — fetch dulu dapat branchId, baru setup channel dengan branchId
   useEffect(() => {
-    fetchPending()
-    setupChannel()
+    let cancelled = false
+    fetchPending().then(bid => {
+      if (!cancelled) setupChannel(bid)
+    })
     return () => {
+      cancelled = true
       if (channelRef.current) supabase.removeChannel(channelRef.current)
     }
   }, [fetchPending, setupChannel])
 
   const handleMarkReady = async (orderId: string) => {
-    // Trigger di DB akan otomatis kurangi stok (lihat migration-v3.sql)
     await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
   }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
         <h1 className="text-lg md:text-xl font-bold">🍳 DAPUR</h1>
         <div className="flex items-center gap-3">
-          <span className="text-2xl md:text-3xl font-black text-orange-400">
-            {orders.length}
-          </span>
+          <span className="text-2xl md:text-3xl font-black text-orange-400">{orders.length}</span>
           <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${
-              connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-            }`}/>
-            <span className="text-xs text-gray-400 hidden sm:block">
-              {connected ? 'LIVE' : 'Reconnecting...'}
-            </span>
+            <span className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
+            <span className="text-xs text-gray-400 hidden sm:block">{connected ? 'LIVE' : 'Reconnecting...'}</span>
           </div>
         </div>
       </header>
 
-      {/* Area pesanan — horizontal scroll di desktop, vertical di mobile */}
       <main className="flex-1 p-3 md:p-5 overflow-x-auto overflow-y-auto">
         {orders.length === 0 ? (
           <div className="h-full min-h-[60vh] flex flex-col items-center justify-center text-gray-700">
@@ -197,14 +169,9 @@ export default function KDSPage() {
             <p className="text-xl md:text-2xl font-bold">Semua Pesanan Selesai</p>
           </div>
         ) : (
-          // flex-wrap: di layar kecil card bisa wrap ke bawah
           <div className="flex flex-wrap md:flex-nowrap gap-3 md:gap-4">
             {orders.map(order => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                onMarkReady={handleMarkReady}
-              />
+              <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
             ))}
           </div>
         )}

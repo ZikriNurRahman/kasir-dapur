@@ -1,4 +1,7 @@
 'use client'
+// src/app/home/layout.tsx
+// CHANGED: OWNER tidak melihat POS dan KDS di navbar — harus masuk cabang dulu
+
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -83,10 +86,12 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
 
   if (pathname.startsWith('/home/kds')) return <>{children}</>
 
-  // Nav per role
+  // CHANGED: Nav items per role
+  // OWNER tidak lihat POS dan KDS — mereka tidak punya branch_id sendiri
+  // OWNER harus masuk ke panel admin cabang dulu baru bisa akses POS/KDS
   const navItems = [
-    { href: '/home/pos',       label: '🖥️ POS',       roles: ['OWNER','ADMIN','EMPLOYEE'] as UserRole[] },
-    { href: '/home/kds',       label: '🍳 Dapur',     roles: ['OWNER','ADMIN','EMPLOYEE'] as UserRole[] },
+    { href: '/home/pos',       label: '🖥️ POS',       roles: ['ADMIN', 'EMPLOYEE'] as UserRole[] },
+    { href: '/home/kds',       label: '🍳 Dapur',     roles: ['ADMIN', 'EMPLOYEE'] as UserRole[] },
     { href: '/home/dashboard', label: '📊 Dashboard', roles: ['EMPLOYEE'] as UserRole[] },
     { href: '/home/admin',     label: '⚙️ Admin',     roles: ['ADMIN'] as UserRole[] },
     { href: '/home/owner',     label: '🏪 Cabang',    roles: ['OWNER'] as UserRole[] },
@@ -119,7 +124,6 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         </nav>
 
         <div className="flex items-center gap-2">
-          {/* Info sesi — nama + role + cabang */}
           {displayName && (
             <div className="hidden sm:flex flex-col items-end leading-tight">
               <span className="text-xs font-semibold text-orange-400">{displayName}</span>
@@ -129,43 +133,45 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
             </div>
           )}
 
-          {/* Bell notifikasi */}
-          <div className="relative">
-            <button onClick={() => setShowNotifPanel(!showNotifPanel)}
-              className="relative p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
-              🔔
-              {notifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full
-                  text-white text-xs font-black flex items-center justify-center">
-                  {notifications.length > 9 ? '9+' : notifications.length}
-                </span>
-              )}
-            </button>
+          {/* Bell notifikasi — sembunyikan untuk OWNER karena tidak punya order langsung */}
+          {role !== 'OWNER' && (
+            <div className="relative">
+              <button onClick={() => setShowNotifPanel(!showNotifPanel)}
+                className="relative p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
+                🔔
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full
+                    text-white text-xs font-black flex items-center justify-center">
+                    {notifications.length > 9 ? '9+' : notifications.length}
+                  </span>
+                )}
+              </button>
 
-            {showNotifPanel && (
-              <div className="absolute right-0 top-9 w-72 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50">
-                <div className="flex justify-between items-center px-4 py-3 border-b border-gray-800">
-                  <span className="text-sm font-bold">Notifikasi</span>
-                  {notifications.length > 0 && (
-                    <button onClick={markAllRead} className="text-xs text-orange-400">Tandai semua dibaca</button>
-                  )}
+              {showNotifPanel && (
+                <div className="absolute right-0 top-9 w-72 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50">
+                  <div className="flex justify-between items-center px-4 py-3 border-b border-gray-800">
+                    <span className="text-sm font-bold">Notifikasi</span>
+                    {notifications.length > 0 && (
+                      <button onClick={markAllRead} className="text-xs text-orange-400">Tandai semua dibaca</button>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {notifications.length === 0
+                      ? <p className="text-xs text-gray-600 text-center py-6">Tidak ada notifikasi baru</p>
+                      : notifications.map(n => (
+                        <div key={n.id} className="px-4 py-3 border-b border-gray-800 last:border-0">
+                          <p className="text-sm text-white font-semibold">🍽️ Pesanan Siap!</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {(n.orders as any)?.order_number} — Meja {(n.orders as any)?.table_number}
+                          </p>
+                        </div>
+                      ))
+                    }
+                  </div>
                 </div>
-                <div className="max-h-64 overflow-y-auto">
-                  {notifications.length === 0
-                    ? <p className="text-xs text-gray-600 text-center py-6">Tidak ada notifikasi baru</p>
-                    : notifications.map(n => (
-                      <div key={n.id} className="px-4 py-3 border-b border-gray-800 last:border-0">
-                        <p className="text-sm text-white font-semibold">🍽️ Pesanan Siap!</p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {(n.orders as any)?.order_number} — Meja {(n.orders as any)?.table_number}
-                        </p>
-                      </div>
-                    ))
-                  }
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <button onClick={handleSignOut}
             className="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1">

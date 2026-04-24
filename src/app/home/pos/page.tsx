@@ -1,9 +1,7 @@
 'use client'
 // src/app/home/pos/page.tsx
-// V3 UPDATE:
-// - Kategori dari DB (tabel categories) — tidak hardcode lagi
-// - Get current user untuk served_by di CartPanel
-// - Responsive: mobile pakai drawer cart (slide up dari bawah)
+// FIX: useEffect dependency [] → [branchId] supaya fetch ulang setelah profile load
+// FIX: realtime subscription sekarang filter by branch_id
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -18,39 +16,55 @@ export default function POSPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [category,   setCategory]   = useState('Semua')
   const [search,     setSearch]     = useState('')
-  const [cartOpen,   setCartOpen]   = useState(false) // mobile: toggle cart drawer
+  const [cartOpen,   setCartOpen]   = useState(false)
 
   const { id: userId, profile } = useCurrentUser()
   const cartCount = useCartStore(s => s.items.reduce((n, i) => n + i.quantity, 0))
 
-  useEffect(() => {
-    // Fetch menu
-    const fetchMenus = async () => {
-  let query = supabase.from('menus').select('*').order('name')
-  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
-  const { data } = await query
-  if (data) setMenus(data as Menu[])
-}
+  // CHANGED: Ambil branchId dari profile
+  const branchId     = profile?.branch_id || ''
+  const servedByName = profile?.display_name || ''
+  const servedById   = userId || ''
 
-    // Fetch categories dari DB — bukan hardcode lagi
+  useEffect(() => {
+    // CHANGED: Guard — jangan fetch kalau branchId belum ready
+    if (!branchId) return
+
+    const fetchMenus = async () => {
+      const { data } = await supabase
+        .from('menus')
+        .select('*')
+        .eq('branch_id', branchId) // CHANGED: selalu filter, tidak conditional
+        .order('name')
+      if (data) setMenus(data as Menu[])
+    }
+
     const fetchCategories = async () => {
-  let query = supabase.from('categories').select('*').order('sort_order')
-  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
-  const { data } = await query
-  if (data) setCategories(data as Category[])
-}
+      const { data } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('branch_id', branchId) // CHANGED: selalu filter
+        .order('sort_order')
+      if (data) setCategories(data as Category[])
+    }
 
     fetchMenus()
     fetchCategories()
 
-    // Subscribe perubahan menu & categories realtime
-    const ch = supabase.channel('pos-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, fetchCategories)
+    // CHANGED: Realtime filter by branch_id supaya tidak terima perubahan cabang lain
+    const ch = supabase.channel(`pos-changes-${branchId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'menus', filter: `branch_id=eq.${branchId}` },
+        fetchMenus,
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'categories', filter: `branch_id=eq.${branchId}` },
+        fetchCategories,
+      )
       .subscribe()
 
     return () => { supabase.removeChannel(ch) }
-  }, [])
+  }, [branchId]) // CHANGED: dependency branchId, bukan [] kosong
 
   const filtered = menus.filter(m => {
     const okCat    = category === 'Semua' || m.category === category
@@ -58,17 +72,23 @@ export default function POSPage() {
     return okCat && okSearch
   })
 
-  const servedByName = profile?.display_name || ''
-  const servedById   = userId || ''
-  const branchId     = profile?.branch_id || ''
+  // CHANGED: Tampilkan loading state kalau branchId belum ada
+  if (!branchId && userId) {
+    return (
+      <div className="h-[calc(100vh-49px)] flex items-center justify-center bg-gray-950 text-gray-500">
+        <div className="text-center">
+          <div className="text-4xl mb-3">⏳</div>
+          <p className="text-sm">Memuat data cabang...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    // Tinggi layar dikurangi header HomeLayout (49px)
     <div className="h-[calc(100vh-49px)] flex bg-gray-950 text-white overflow-hidden">
 
       {/* ═══ PANEL KIRI — Menu ═══ */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Toolbar: judul + search */}
         <div className="px-3 pt-3 pb-2 bg-gray-900 border-b border-gray-800">
           <div className="flex items-center gap-2 mb-2">
             <h2 className="font-bold text-sm flex-1">Pilih Menu</h2>
@@ -79,7 +99,6 @@ export default function POSPage() {
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5
                 text-sm w-32 md:w-44 focus:outline-none focus:border-orange-500"
             />
-            {/* Mobile: tombol buka cart dengan badge count */}
             <button
               onClick={() => setCartOpen(true)}
               className="relative lg:hidden bg-orange-600 hover:bg-orange-500
@@ -95,7 +114,6 @@ export default function POSPage() {
             </button>
           </div>
 
-          {/* Filter kategori — horizontal scroll */}
           <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <button
               onClick={() => setCategory('Semua')}
@@ -123,7 +141,6 @@ export default function POSPage() {
           </div>
         </div>
 
-        {/* Grid menu */}
         <div className="flex-1 overflow-y-auto p-3">
           <MenuGrid menus={filtered} />
         </div>
@@ -134,24 +151,15 @@ export default function POSPage() {
         <CartPanel servedByName={servedByName} servedById={servedById} branchId={branchId} />
       </div>
 
-      {/* ═══ CART DRAWER — Mobile (slide up dari bawah) ═══ */}
+      {/* ═══ CART DRAWER — Mobile ═══ */}
       {cartOpen && (
         <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setCartOpen(false)}
-          />
-          {/* Drawer */}
+          <div className="absolute inset-0 bg-black/60" onClick={() => setCartOpen(false)} />
           <div className="relative bg-gray-900 rounded-t-2xl flex flex-col max-h-[85vh] z-10">
-            {/* Handle bar + tombol tutup */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
               <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-2"/>
               <span className="font-bold text-sm mt-1">🛒 Cart</span>
-              <button
-                onClick={() => setCartOpen(false)}
-                className="text-gray-400 hover:text-white text-lg leading-none"
-              >×</button>
+              <button onClick={() => setCartOpen(false)} className="text-gray-400 hover:text-white text-lg leading-none">×</button>
             </div>
             <div className="flex-1 overflow-y-auto">
               <CartPanel servedByName={servedByName} servedById={servedById} branchId={branchId} />
