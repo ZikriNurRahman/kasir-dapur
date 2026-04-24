@@ -16,7 +16,7 @@ import type { Order, OrderType } from '@/types/database'
 interface Props {
   servedByName: string
   servedById:   string
-  branchId:     string  // ← V4: wajib untuk multi-cabang
+  branchId:     string
 }
 
 export function CartPanel({ servedByName, servedById, branchId }: Props) {
@@ -40,21 +40,30 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
   const change  = cashNum - total
 
   const handleCheckout = async () => {
-    if (!isReadyToCheckout() || submitting) return
-    if (paymentMethod === 'CASH' && cashNum > 0 && cashNum < total) {
-      toast.error('Uang yang diterima kurang dari total!')
-      return
-    }
-    setSubmitting(true)
-    try {
-      paymentMethod === 'CASH' ? await checkoutCash() : await checkoutQris()
-    } catch (err) {
-      console.error(err)
-      toast.error('❌ Gagal checkout — cek koneksi')
-    } finally {
-      setSubmitting(false)
-    }
+  if (!isReadyToCheckout() || submitting) return
+  if (paymentMethod === 'CASH' && cashNum > 0 && cashNum < total) {
+    toast.error('Uang yang diterima kurang dari total!'); return
   }
+  setSubmitting(true)
+  try {
+    if (paymentMethod === 'CASH')       await checkoutCash()
+    else if (paymentMethod === 'QRIS')  await checkoutQris()
+    else                                await checkoutLater()
+  } catch (err: any) {
+    // Log detail lengkap — biar ketahuan error-nya apa
+    console.error('Checkout error detail:', {
+      message: err?.message,
+      code:    err?.code,
+      details: err?.details,
+      hint:    err?.hint,
+      full:    JSON.stringify(err),
+    })
+    const msg = err?.message || err?.details || err?.hint || JSON.stringify(err) || 'Unknown error'
+    toast.error(`❌ ${msg}`)
+  } finally {
+    setSubmitting(false)
+  }
+}
 
   const checkoutCash = async () => {
     // Simpan cashNum sebelum clear — ini fix bug kembalian hilang!
@@ -163,6 +172,42 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
     toast.info('📱 Scan QR untuk membayar', { duration: 5000 })
   }
 
+  const checkoutLater = async () => {
+  const { data: order, error: e1 } = await supabase
+    .from('orders')
+    .insert({
+      table_number:   tableNumber,
+      customer_name:  customerName,
+      order_type:     orderType,
+      total_price:    total,
+      payment_method: 'LATER',   // bayar nanti
+      status:         'PENDING', // langsung masuk dapur
+      served_by:      servedById   || null,
+      served_by_name: servedByName || '',
+      cash_received:  0,
+      branch_id:      branchId,
+    })
+    .select().single()
+  if (e1) throw e1
+
+  const { error: e2 } = await supabase.from('order_items').insert(
+    items.map(i => ({
+      order_id:   order.id,
+      menu_id:    i.menuId,
+      menu_name:  i.menuName,
+      unit_price: i.unitPrice,
+      quantity:   i.quantity,
+      notes:      i.notes,
+    }))
+  )
+  if (e2) throw e2
+
+  setLastOrderId(order.id)
+  setLastOrderNum(order.order_number)
+  clearCart()
+  toast.success(`✅ ${order.order_number} dikirim ke dapur! (Bayar nanti)`, { duration: 5000 })
+}
+
   // Buka struk dari orders yang sudah selesai — bisa dipanggil kapanpun
   const openReceipt = async (orderId: string) => {
     const { data } = await supabase
@@ -205,9 +250,11 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
       const rp = (n: number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',minimumFractionDigits:0}).format(n)
 
       const cashSection = order.payment_method === 'CASH' && cashRcv > 0
-        ? `<tr><td colspan="2" style="padding:2px 4px;color:#555">Bayar</td><td style="padding:2px 4px;text-align:right">${rp(cashRcv)}</td></tr>
-           <tr><td colspan="2" style="padding:2px 4px;font-weight:bold">Kembali</td><td style="padding:2px 4px;text-align:right;font-weight:bold">${rp(Math.max(0,chg))}</td></tr>`
-        : ''
+  ? `<tr><td colspan="2" style="padding:2px 4px;color:#555">Bayar</td><td style="padding:2px 4px;text-align:right">${rp(cashRcv)}</td></tr>
+     <tr><td colspan="2" style="padding:2px 4px;font-weight:bold">Kembali</td><td style="padding:2px 4px;text-align:right;font-weight:bold">${rp(Math.max(0,chg))}</td></tr>`
+  : order.payment_method === 'LATER'
+    ? `<tr><td colspan="3" style="padding:4px;text-align:center;color:#D97706;font-weight:bold">⏰ BELUM LUNAS</td></tr>`
+    : ''
 
       const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
         <title>Struk ${order.order_number}</title>
@@ -252,6 +299,8 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
       if (win) { win.document.write(html); win.document.close() }
     })
   }
+
+  
 
   return (
     <>
@@ -359,15 +408,15 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            {(['CASH','QRIS'] as const).map(m => (
-              <button key={m} onClick={() => setPaymentMethod(m)}
-                className={`py-2 rounded-lg text-sm font-bold transition-colors
-                  ${paymentMethod===m?'bg-orange-600 text-white':'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
-                {m==='CASH'?'💵 Cash':'📱 QRIS'}
-              </button>
-            ))}
-          </div>
+          <div className="grid grid-cols-3 gap-2">  {/* ← ganti jadi 3 kolom */}
+  {(['CASH','QRIS','LATER'] as const).map(m => (
+    <button key={m} onClick={() => setPaymentMethod(m)}
+      className={`py-2 rounded-lg text-xs font-bold transition-colors
+        ${paymentMethod===m?'bg-orange-600 text-white':'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+      {m==='CASH' ? '💵 Cash' : m==='QRIS' ? '📱 QRIS' : '⏰ Nanti'}
+    </button>
+  ))}
+</div>
 
           {paymentMethod === 'CASH' && (
             <div>
@@ -395,11 +444,10 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
               ${isReadyToCheckout() && !submitting
                 ? 'bg-orange-600 hover:bg-orange-500 text-white'
                 : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`}>
-            {submitting
-              ? 'Memproses...'
-              : paymentMethod==='QRIS'
-                ? '📱 Generate QR & Kirim'
-                : '✓ Bayar & Kirim ke Dapur'}
+            {submitting ? 'Memproses...'
+  : paymentMethod==='QRIS' ? '📱 Generate QR & Kirim'
+  : paymentMethod==='LATER' ? '⏰ Kirim ke Dapur (Bayar Nanti)'
+  : '✓ Bayar & Kirim ke Dapur'}
           </button>
         </div>
       </div>

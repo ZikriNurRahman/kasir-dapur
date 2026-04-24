@@ -60,14 +60,20 @@ export default function KDSPage() {
   }, [])
 
   const fetchPending = useCallback(async () => {
-    const { data } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('status', 'PENDING')
-      .order('created_at', { ascending: true })
-    if (data) setOrders(data as Order[])
-  }, [])
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
 
+  const { data: profile } = await supabase
+    .from('profiles').select('branch_id').eq('id', user.id).single()
+
+  let query = supabase.from('orders').select('*, order_items(*)')
+    .eq('status', 'PENDING').order('created_at', { ascending: true })
+
+  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
+
+  const { data } = await query
+  if (data) setOrders(data as Order[])
+}, [])
   const setupChannel = useCallback(() => {
     // Hapus channel lama kalau ada
     if (channelRef.current) {

@@ -6,7 +6,7 @@
 // - Roles: OWNER | ADMIN | EMPLOYEE
 
 export type OrderStatus   = 'PENDING_PAYMENT' | 'PENDING' | 'READY' | 'COMPLETED' | 'CANCELLED'
-export type PaymentMethod = 'CASH' | 'QRIS'
+export type PaymentMethod = 'CASH' | 'QRIS' | 'LATER'
 export type OrderType     = 'DINE_IN' | 'TAKEAWAY'
 export type UserRole      = 'OWNER' | 'ADMIN' | 'EMPLOYEE'
 // OWNER  → bisa kelola semua cabang

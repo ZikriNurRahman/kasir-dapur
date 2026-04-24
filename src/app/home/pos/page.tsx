@@ -26,18 +26,19 @@ export default function POSPage() {
   useEffect(() => {
     // Fetch menu
     const fetchMenus = async () => {
-      const { data } = await supabase.from('menus').select('*').order('name')
-      if (data) setMenus(data as Menu[])
-    }
+  let query = supabase.from('menus').select('*').order('name')
+  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
+  const { data } = await query
+  if (data) setMenus(data as Menu[])
+}
 
     // Fetch categories dari DB — bukan hardcode lagi
     const fetchCategories = async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('*')
-        .order('sort_order')
-      if (data) setCategories(data as Category[])
-    }
+  let query = supabase.from('categories').select('*').order('sort_order')
+  if (profile?.branch_id) query = query.eq('branch_id', profile.branch_id)
+  const { data } = await query
+  if (data) setCategories(data as Category[])
+}
 
     fetchMenus()
     fetchCategories()
@@ -59,6 +60,7 @@ export default function POSPage() {
 
   const servedByName = profile?.display_name || ''
   const servedById   = userId || ''
+  const branchId     = profile?.branch_id || ''
 
   return (
     // Tinggi layar dikurangi header HomeLayout (49px)
@@ -129,7 +131,7 @@ export default function POSPage() {
 
       {/* ═══ PANEL KANAN — Cart (desktop) ═══ */}
       <div className="hidden lg:flex w-[320px] xl:w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex-col">
-        <CartPanel servedByName={servedByName} servedById={servedById} />
+        <CartPanel servedByName={servedByName} servedById={servedById} branchId={branchId} />
       </div>
 
       {/* ═══ CART DRAWER — Mobile (slide up dari bawah) ═══ */}
@@ -152,7 +154,7 @@ export default function POSPage() {
               >×</button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <CartPanel servedByName={servedByName} servedById={servedById} />
+              <CartPanel servedByName={servedByName} servedById={servedById} branchId={branchId} />
             </div>
           </div>
         </div>
