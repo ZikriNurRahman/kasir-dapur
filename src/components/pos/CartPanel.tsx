@@ -12,14 +12,16 @@ import { useCartStore } from '@/store/cart.store'
 import { supabase } from '@/lib/supabase'
 import { formatRupiah } from '@/lib/utils'
 import type { Order, OrderType } from '@/types/database'
+import { generateOrderNumber } from '@/lib/utils'
 
 interface Props {
   servedByName: string
   servedById:   string
   branchId:     string
+  branchCode: string
 }
 
-export function CartPanel({ servedByName, servedById, branchId }: Props) {
+export function CartPanel({ servedByName, servedById, branchId, branchCode }: Props) {
   const {
     items, tableNumber, paymentMethod, customerName, orderType,
     decrementItem, removeItem, setTableNumber, setPaymentMethod,
@@ -65,6 +67,8 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
   }
 }
 
+  const orderNumber = generateOrderNumber(branchCode || 'STR')
+
   const checkoutCash = async () => {
     // Simpan cashNum sebelum clear — ini fix bug kembalian hilang!
     const savedCashNum = cashNum
@@ -72,6 +76,7 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
+        order_number: orderNumber,
         table_number:   tableNumber,
         customer_name:  customerName,
         order_type:     orderType,
@@ -117,9 +122,11 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
   }
 
   const checkoutQris = async () => {
+
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
+        order_number: orderNumber,
         table_number:   tableNumber,
         customer_name:  customerName,
         order_type:     orderType,
@@ -176,6 +183,7 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
   const { data: order, error: e1 } = await supabase
     .from('orders')
     .insert({
+      order_number: orderNumber, 
       table_number:   tableNumber,
       customer_name:  customerName,
       order_type:     orderType,
@@ -213,18 +221,16 @@ export function CartPanel({ servedByName, servedById, branchId }: Props) {
     const { data } = await supabase
       .from('orders')
       .select('*, order_items(*)')
-      .eq('id', orderId)
+      .eq('id', orderId)  
       .single()
-    if (data) {
-      // Buka di window baru untuk print
-      printReceipt(data as Order)
-    }
+    if (data) printReceipt(data as Order)
+    else toast.error('Data order tidak ditemukan')
   }
 
   // Print struk via window baru
   const printReceipt = (order: Order) => {
     // Fetch settings toko dulu
-    supabase.from('store_settings').select('*').eq('id', 1).single().then(({ data: settings }) => {
+    supabase.from('store_settings').select('*').eq('branch_id', branchId).single().then(({ data: settings }) => {
       const cashRcv  = order.cash_received || 0
       const chg      = cashRcv - order.total_price
       const timeStr  = new Date(order.created_at).toLocaleString('id-ID', {

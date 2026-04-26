@@ -20,6 +20,7 @@ export interface Branch {
   name:       string
   address:    string
   slug:       string
+  code:       string
   is_active:  boolean
   created_at: string
 }

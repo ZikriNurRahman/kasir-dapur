@@ -1,7 +1,4 @@
 'use client'
-// src/app/home/layout.tsx
-// CHANGED: OWNER tidak melihat POS dan KDS di navbar — harus masuk cabang dulu
-
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -19,6 +16,29 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
   const [notifications,  setNotifications]  = useState<OrderNotification[]>([])
   const [showNotifPanel, setShowNotifPanel] = useState(false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  // Detect branch param dari URL (untuk OWNER yang lagi di panel admin cabang)
+  const [ownerBranchParam, setOwnerBranchParam] = useState<string | null>(null)
+
+  const [ownerActiveBranchName, setOwnerActiveBranchName] = useState('')
+
+
+  // Update ownerBranchParam setiap kali pathname berubah
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const branchParam = params.get('branch')
+      setOwnerBranchParam(branchParam)
+
+      // Fetch nama cabang untuk owner yang lagi di branch
+      if (branchParam && role === 'OWNER') {
+        supabase.from('branches').select('name').eq('id', branchParam).single()
+          .then(({ data }) => { if (data) setOwnerActiveBranchName(data.name) })
+      } else {
+        setOwnerActiveBranchName('')
+      }
+    }
+  }, [pathname, role])
 
   useEffect(() => {
     let cancelled = false
@@ -41,7 +61,25 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
       }
     }
     fetchUser()
-    return () => { cancelled = true }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if (!session) {
+        // Reset state lama biar info akun tidak tertinggal
+        setRole(null)
+        setDisplayName('')
+        setUserId('')
+        setBranchName('')
+        router.replace('/login')
+      } else {
+        // Akun baru login → re-fetch data user terbaru
+        fetchUser()
+      }
+    })
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -60,10 +98,25 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         event: 'INSERT', schema: 'public',
         table: 'order_notifications', filter: `user_id=eq.${userId}`,
       }, async (payload) => {
-        const { data } = await supabase.from('order_notifications')
-          .select('*, orders(order_number, table_number, customer_name)')
-          .eq('id', payload.new.id).single()
-        if (!cancelled && data) setNotifications(prev => [data as OrderNotification, ...prev])
+        const notif = payload.new as OrderNotification
+        const { data: order } = await supabase
+          .from('orders')
+          .select('order_number, table_number, customer_name')
+          .eq('id', notif.order_id)
+          .single()
+        if (!cancelled) {
+          setNotifications(prev => [{ ...notif, orders: order } as OrderNotification, ...prev])
+        }
+      })
+      // FIX: tambah listener UPDATE — hapus dari state lokal kalau is_read jadi true
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public',
+        table: 'order_notifications', filter: `user_id=eq.${userId}`,
+      }, (payload) => {
+        if (payload.new.is_read === true) {
+          // Langsung hapus dari state tanpa perlu fetch ulang
+          setNotifications(prev => prev.filter(n => n.id !== payload.new.id))
+        }
       })
       .subscribe()
 
@@ -86,16 +139,17 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
 
   if (pathname.startsWith('/home/kds')) return <>{children}</>
 
-  // CHANGED: Nav items per role
-  // OWNER tidak lihat POS dan KDS — mereka tidak punya branch_id sendiri
-  // OWNER harus masuk ke panel admin cabang dulu baru bisa akses POS/KDS
-  const navItems = [
-    { href: '/home/pos',       label: '🖥️ POS',       roles: ['ADMIN', 'EMPLOYEE'] as UserRole[] },
-    { href: '/home/kds',       label: '🍳 Dapur',     roles: ['ADMIN', 'EMPLOYEE'] as UserRole[] },
-    { href: '/home/dashboard', label: '📊 Dashboard', roles: ['EMPLOYEE'] as UserRole[] },
-    { href: '/home/admin',     label: '⚙️ Admin',     roles: ['ADMIN'] as UserRole[] },
-    { href: '/home/owner',     label: '🏪 Cabang',    roles: ['OWNER'] as UserRole[] },
-  ]
+  // OWNER yang sedang di admin panel suatu cabang → tampilkan POS & KDS
+  const ownerInBranch = role === 'OWNER' && ownerBranchParam != null && pathname.startsWith('/home/admin')
+
+  // Nav items — POS/KDS hanya muncul untuk:
+  // 1. ADMIN dan EMPLOYEE (selalu)
+  // 2. OWNER yang sedang dalam konteks admin panel cabang
+  const showPosKds = role === 'ADMIN' || role === 'EMPLOYEE' || ownerInBranch
+
+  // Link POS/KDS untuk owner: sertakan branch param agar context tidak hilang
+  const posHref = ownerInBranch ? `/home/pos?branch=${ownerBranchParam}` : '/home/pos'
+  const kdsHref = ownerInBranch ? `/home/kds?branch=${ownerBranchParam}` : '/home/kds'
 
   const roleLabel = role === 'OWNER' ? '👑 Owner'
     : role === 'ADMIN' ? '🛡️ Admin'
@@ -110,17 +164,61 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         </Link>
 
         <nav className="flex items-center gap-1">
-          {navItems
-            .filter(item => !role || item.roles.includes(role))
-            .map(item => (
-              <Link key={item.href} href={item.href}
+          {/* POS & KDS — tampil untuk ADMIN/EMPLOYEE atau OWNER yang lagi di branch */}
+          {role !== null && showPosKds && (
+            <>
+              <Link href={posHref}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
-                  ${pathname.startsWith(item.href)
+                  ${pathname.startsWith('/home/pos')
                     ? 'bg-orange-600 text-white'
                     : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                {item.label}
+                🖥️ POS
               </Link>
-            ))}
+              <Link href={kdsHref}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
+                  ${pathname.startsWith('/home/kds')
+                    ? 'bg-orange-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                🍳 Dapur
+              </Link>
+            </>
+          )}
+
+          {/* Dashboard — hanya EMPLOYEE */}
+          {role !== null && role === 'EMPLOYEE' && (
+            <Link href="/home/dashboard"
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
+                ${pathname.startsWith('/home/dashboard')
+                  ? 'bg-orange-600 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+              📊 Dashboard
+            </Link>
+          )}
+
+          {/* Admin — ADMIN dan OWNER yang dalam konteks branch */}
+          {role !== null && (role === 'ADMIN' || ownerInBranch) && (
+            <Link
+              href={ownerInBranch
+                ? `/home/admin?branch=${ownerBranchParam}`
+                : '/home/admin'}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
+                ${pathname.startsWith('/home/admin')
+                  ? 'bg-orange-600 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+              ⚙️ Admin
+            </Link>
+          )}
+
+          {/* Cabang — hanya OWNER, dan hanya ketika tidak sedang di dalam branch */}
+          {role === 'OWNER' && (
+            <Link href="/home/owner"
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
+                ${pathname.startsWith('/home/owner')
+                  ? 'bg-orange-600 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+              🏪 Cabang
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-2">
@@ -128,13 +226,18 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
             <div className="hidden sm:flex flex-col items-end leading-tight">
               <span className="text-xs font-semibold text-orange-400">{displayName}</span>
               <span className="text-xs text-gray-600">
-                {roleLabel}{branchName ? ` · ${branchName}` : ''}
+                {roleLabel}
+                {/* Untuk owner yang lagi di branch, tampilkan nama cabang */}
+                {ownerInBranch && ownerActiveBranchName
+                  ? ` · ${ownerActiveBranchName}`
+                  : branchName ? ` · ${branchName}` : ''
+                }
               </span>
             </div>
           )}
 
-          {/* Bell notifikasi — sembunyikan untuk OWNER karena tidak punya order langsung */}
-          {role !== 'OWNER' && (
+          {/* Bell notif — sembunyikan untuk OWNER di /home/owner */}
+          {(role !== 'OWNER' || ownerInBranch) && (
             <div className="relative">
               <button onClick={() => setShowNotifPanel(!showNotifPanel)}
                 className="relative p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
@@ -152,7 +255,9 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
                   <div className="flex justify-between items-center px-4 py-3 border-b border-gray-800">
                     <span className="text-sm font-bold">Notifikasi</span>
                     {notifications.length > 0 && (
-                      <button onClick={markAllRead} className="text-xs text-orange-400">Tandai semua dibaca</button>
+                      <button onClick={markAllRead} className="text-xs text-orange-400">
+                        Tandai semua dibaca
+                      </button>
                     )}
                   </div>
                   <div className="max-h-64 overflow-y-auto">

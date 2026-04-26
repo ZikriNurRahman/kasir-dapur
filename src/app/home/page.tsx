@@ -6,21 +6,25 @@ import type { UserRole } from '@/types/database'
 
 export default function HomePage() {
   const router = useRouter()
-  const [role, setRole] = useState<UserRole | null>(null)
-  const [name, setName] = useState('')
+  const [role,    setRole]    = useState<UserRole | null>(null)
+  const [name,    setName]    = useState('')
+  const [loading, setLoading] = useState(true)   // ← tambah loading
 
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) { setLoading(false); return }
       const { data: p } = await supabase.from('profiles')
         .select('role, display_name').eq('id', user.id).single()
-      if (p) { setRole(p.role as UserRole); setName(p.display_name || user.email?.split('@')[0] || '') }
+      if (p) {
+        setRole(p.role as UserRole)
+        setName(p.display_name || user.email?.split('@')[0] || '')
+      }
+      setLoading(false)   // ← set false setelah data ada
     }
     fetchUser()
   }, [])
 
-  // OWNER → langsung ke halaman owner
   useEffect(() => {
     if (role === 'OWNER') router.replace('/home/owner')
   }, [role, router])
@@ -44,9 +48,10 @@ export default function HomePage() {
       roles: ['ADMIN'] as UserRole[] },
   ]
 
-  if (role === 'OWNER') return null // sedang redirect
+  if (loading || role === 'OWNER') return null   // ← jangan render apapun dulu
 
-  const visibleCards = cards.filter(c => !role || c.roles.includes(role))
+  // ↓ filter hanya jalan kalau role sudah terisi (bukan null)
+  const visibleCards = cards.filter(c => role !== null && c.roles.includes(role))
   const roleLabel = role === 'ADMIN' ? '🛡️ Admin' : '👤 Pegawai'
 
   return (

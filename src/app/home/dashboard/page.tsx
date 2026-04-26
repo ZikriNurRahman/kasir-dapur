@@ -3,9 +3,10 @@
 // Berisi: pesanan yang dilayani sendiri + filter tanggal + cetak struk
 
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatRupiah } from '@/lib/utils'
+import { toast } from 'sonner'
 import type { Order } from '@/types/database'
 
 const formatDate = (iso: string) =>
@@ -21,6 +22,7 @@ export default function EmployeeDashboardPage() {
   const [orders,    setOrders]    = useState<Order[]>([])
   const [summary,   setSummary]   = useState<{total:number,revenue:number,cash:number,qris:number} | null>(null)
   const [loading,   setLoading]   = useState(true)
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   useEffect(() => {
     const getUser = async () => {
@@ -58,9 +60,56 @@ export default function EmployeeDashboardPage() {
 
   useEffect(() => { fetchMyOrders() }, [fetchMyOrders])
 
+  useEffect(() => {
+    if (!userId) return
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+
+    const channel = supabase
+      .channel(`dashboard-${userId}-${reportDate}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `served_by=eq.${userId}`,
+      }, () => fetchMyOrders())
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'order_items',
+      }, () => fetchMyOrders())
+      .subscribe()
+
+    channelRef.current = channel
+
+    return () => {
+      supabase.removeChannel(channel)
+      channelRef.current = null
+    }
+  }, [userId, reportDate, fetchMyOrders])
+
+  // Tambah fungsi markComplete:
+  const markComplete = async (orderId: string) => {
+    const { error } = await supabase.from('orders')
+      .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+    if (error) toast.error(error.message)
+    else {
+      toast.success('Order ditandai selesai')
+      fetchMyOrders()
+    }
+  }
+
   // Print struk — sama dengan di CartPanel
   const printReceipt = async (order: Order) => {
-    const { data: settings } = await supabase.from('store_settings').select('*').eq('id', 1).single()
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('branch_id').eq('id', user.id).single()
+      : { data: null }
+    const { data: settings } = await supabase.from('store_settings').select('*').eq('branch_id', profile?.branch_id ?? '').single()
     const cashRcv = order.cash_received || 0
     const chg     = cashRcv - order.total_price
     const rp = (n: number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',minimumFractionDigits:0}).format(n)
@@ -182,6 +231,16 @@ export default function EmployeeDashboardPage() {
                       : o.status === 'CANCELLED' ? 'bg-red-900 text-red-400'
                       : 'bg-yellow-900 text-yellow-400'
                     }`}>{o.status}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-1.5">
+                      {o.status === 'READY' && (
+                        <button onClick={() => markComplete(o.id)}
+                          className="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-400 rounded text-xs font-bold">
+                          ✓ Selesai
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <button onClick={() => printReceipt(o)}

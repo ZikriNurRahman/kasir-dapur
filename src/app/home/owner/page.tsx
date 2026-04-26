@@ -15,7 +15,7 @@ export default function OwnerPage() {
   const [loading,  setLoading]  = useState(true)
 
   const [showForm,   setShowForm]   = useState(false)
-  const [branchForm, setBranchForm] = useState({ name: '', address: '', slug: '' })
+  const [branchForm, setBranchForm] = useState({ name: '', address: '', slug: '', code: '' })
   const [saving,     setSaving]     = useState(false)
 
   const [branchAdmins, setBranchAdmins] = useState<Record<string, Profile[]>>({})
@@ -67,30 +67,35 @@ export default function OwnerPage() {
   useEffect(() => { if (branches.length > 0) fetchAdminsForBranches(branches) }, [branches, fetchAdminsForBranches])
 
   const handleCreateBranch = async () => {
-    if (!branchForm.name || !branchForm.slug) {
-      toast.error('Nama dan slug cabang wajib diisi'); return
+    if (!branchForm.name || !branchForm.slug || !branchForm.code) {
+      toast.error('Nama, kode (3 huruf), dan slug wajib diisi'); return
+    }
+    const cleanCode = branchForm.code.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+    if (cleanCode.length !== 3) {
+      toast.error('Kode cabang harus tepat 3 huruf/angka'); return
     }
     setSaving(true)
     try {
       const slug = branchForm.slug.toLowerCase().replace(/\s+/g, '-')
       const { data, error } = await supabase.from('branches').insert({
         owner_id: userId,
-        name:     branchForm.name,
-        address:  branchForm.address,
+        name: branchForm.name,
+        address: branchForm.address,
         slug,
-      }).select().single()
+      code: cleanCode,   // ← simpan kode
+    }).select().single()
 
-      if (error) throw new Error(error.message)
+    if (error) throw new Error(error.message)
 
-      await supabase.from('store_settings').insert({
-        branch_id:     data.id,
-        store_name:    branchForm.name,
-        store_address: branchForm.address,
-        footer_text:   'Terima kasih, sampai jumpa lagi! 🍽️',
-      })
+    await supabase.from('store_settings').insert({
+      branch_id: data.id,
+      store_name: branchForm.name,
+      store_address: branchForm.address,
+      footer_text: 'Terima kasih, sampai jumpa lagi! 🍽️',
+    })
 
-      toast.success(`Cabang "${branchForm.name}" berhasil dibuat!`)
-      setBranchForm({ name: '', address: '', slug: '' })
+      toast.success(`Cabang "${branchForm.name}" (${cleanCode}) berhasil dibuat!`)
+      setBranchForm({ name: '', address: '', slug: '', code: '' })
       setShowForm(false)
       fetchBranches()
     } catch (err: any) {
@@ -159,6 +164,21 @@ export default function OwnerPage() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"/>
             </div>
             <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                Kode Cabang * <span className="text-gray-600">(3 huruf, contoh: PDG)</span>
+              </label>
+              <input
+                value={branchForm.code}
+                onChange={e => setBranchForm({ ...branchForm, code: e.target.value.toUpperCase().slice(0, 3) })}
+                placeholder="PDG"
+                maxLength={3}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
+      font-mono tracking-widest focus:outline-none focus:border-orange-500"/>
+              <p className="text-xs text-gray-600 mt-1">
+                Dipakai untuk kode invoice (misal PDG-0K3H2X1) dan login pegawai
+              </p>
+            </div>
+            <div>
               <label className="block text-xs text-gray-400 mb-1">Slug (ID unik) *</label>
               <input value={branchForm.slug}
                 onChange={e => setBranchForm({ ...branchForm, slug: e.target.value })}
@@ -208,6 +228,9 @@ export default function OwnerPage() {
                       <p className="text-xs text-gray-500 mt-0.5">{branch.address}</p>
                     )}
                     <p className="text-xs text-gray-700 mt-0.5 font-mono">/{branch.slug}</p>
+                    <p className="text-xs font-mono font-bold text-orange-900 mt-0.5">
+                      Kode: {branch.code}
+                    </p>,
                   </div>
                   <button onClick={() => handleDeleteBranch(branch)}
                     className="text-xs text-gray-600 hover:text-red-400 transition-colors px-2 py-1">

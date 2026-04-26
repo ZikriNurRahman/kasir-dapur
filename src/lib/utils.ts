@@ -41,3 +41,17 @@ export function formatTime(createdAt: string): string {
 export function cn(...classes: (string | boolean | undefined)[]): string {
   return classes.filter(Boolean).join(' ')
 }
+
+// Format invoice code
+export function generateOrderNumber(branchCode: string): string {
+  const code = (branchCode || 'STR')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 3)
+    .toUpperCase()
+    .padEnd(3, 'X')
+
+  const ts = Math.floor(Date.now() / 2).toString(36).toUpperCase()
+  const timePart = ts.padStart(8, '0')
+
+  return `${code}-${timePart}`
+}

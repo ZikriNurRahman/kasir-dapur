@@ -5,7 +5,7 @@
 // CHANGED: StaffRow bisa edit username dan reset password
 // CHANGED: Form tambah pegawai — ADMIN hanya bisa pilih role EMPLOYEE
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, Suspense, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -23,16 +23,18 @@ const formatDate = (iso: string) =>
 // ─── STAFF ROW ─────────────────────────────────────────────────────────────
 // CHANGED: Prop tambahan isOwner untuk control tombol role
 // CHANGED: Tambah mode edit username dan reset password
-function StaffRow({ staff, isOwner, onRoleChange, onDataChange }: {
+function StaffRow({ staff, isOwner, onRoleChange, onDataChange, onDelete }: {
   staff:        Profile
   isOwner:      boolean
   onRoleChange: (id: string, role: UserRole) => void
   onDataChange: () => void
+  onDelete: (id: string, name: string) => void
 }) {
   const [editMode,    setEditMode]    = useState<'name' | 'username' | 'password' | null>(null)
   const [nameVal,     setNameVal]     = useState(staff.display_name)
   const [usernameVal, setUsernameVal] = useState(staff.username || '')
   const [passwordVal, setPasswordVal] = useState('')
+  const [oldPasswordVal, setOldPasswordVal] = useState('')
   const [saving,      setSaving]      = useState(false)
 
   const save = async () => {
@@ -43,7 +45,12 @@ function StaffRow({ staff, isOwner, onRoleChange, onDataChange }: {
     if (editMode === 'name')     body.displayName = nameVal
     if (editMode === 'username') body.username    = usernameVal
     if (editMode === 'password') {
-      if (passwordVal.length < 6) { toast.error('Password minimal 6 karakter'); setSaving(false); return }
+      if (passwordVal.length < 6) {
+        toast.error('Password minimal 6 karakter'); setSaving(false); return
+      }
+      if (passwordVal === oldPasswordVal && oldPasswordVal !== '') {
+        toast.error('Password baru tidak boleh sama dengan password lama'); setSaving(false); return
+      }
       body.newPassword = passwordVal
     }
 
@@ -106,13 +113,25 @@ function StaffRow({ staff, isOwner, onRoleChange, onDataChange }: {
           {/* Reset Password */}
           <div className="flex items-center gap-2">
             {editMode === 'password' ? (
-              <input autoFocus type="password" value={passwordVal} onChange={e => setPasswordVal(e.target.value)}
-                placeholder="password baru (min 6 karakter)"
-                className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-500"/>
+              <div className="flex flex-col gap-1.5 flex-1">
+                <input type="password" value={oldPasswordVal}
+                  onChange={e => setOldPasswordVal(e.target.value)}
+                  placeholder="password lama (untuk verifikasi)"
+                  className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-500" />
+                <input autoFocus type="password" value={passwordVal}
+                  onChange={e => setPasswordVal(e.target.value)}
+                  placeholder="password baru (min 6 karakter)"
+                  className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-500" />
+              </div>
             ) : null}
             {editMode === 'password'
-              ? <><button onClick={save} disabled={saving} className="px-2 py-1 bg-orange-600 rounded text-xs font-bold">{saving?'...':'Simpan'}</button>
-                  <button onClick={() => setEditMode(null)} className="px-2 py-1 bg-gray-700 rounded text-xs">Batal</button></>
+              ? <>
+                <button onClick={save} disabled={saving} className="px-2 py-1 bg-orange-600 rounded text-xs font-bold">
+                  {saving ? '...' : 'Simpan'}
+                </button>
+                <button onClick={() => { setEditMode(null); setPasswordVal(''); setOldPasswordVal('') }}
+                  className="px-2 py-1 bg-gray-700 rounded text-xs">Batal</button>
+              </>
               : <button onClick={() => setEditMode('password')} className="text-xs text-gray-500 hover:text-red-400">🔑 reset password</button>
             }
           </div>
@@ -145,6 +164,16 @@ function StaffRow({ staff, isOwner, onRoleChange, onDataChange }: {
             </div>
           )}
         </div>
+
+
+      </div>
+      <div className="mt-3 pt-3 border-t border-gray-800 flex justify-end">
+        <button
+          onClick={() => onDelete(staff.id, staff.display_name || staff.username || 'Pegawai ini')}
+          className="px-3 py-1 text-xs text-red-500 hover:text-red-400 hover:bg-red-950
+      rounded-lg transition-colors font-semibold">
+          🗑️ Hapus Pegawai
+        </button>
       </div>
     </div>
   )
@@ -183,10 +212,25 @@ function AdminPageContent() {
   const [addingStaff,  setAddingStaff]  = useState(false)
 
   const [reportRange,  setReportRange]  = useState<'today'|'7d'|'30d'|'90d'>('7d')
-  const [reportData,   setReportData]   = useState<{total:number,revenue:number,cash:number,qris:number,topMenus:{name:string,qty:number}[],bottomMenus:{name:string,qty:number}[]}|null>(null)
+  const [reportData, setReportData] = useState<{
+    total: number, revenue: number, cash: number, qris: number,
+    topMenus: { name: string, qty: number }[], bottomMenus: { name: string, qty: number }[]
+  } | null>(null)
   const [orderHistory, setOrderHistory] = useState<Order[]>([])
-  const [historyPage,  setHistoryPage]  = useState(1)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [searchInvoice, setSearchInvoice] = useState('')
+  const [filterPelayan, setFilterPelayan] = useState('all')
+  const reportChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const PAGE_SIZE = 20
+
+  const getFromDate = (range: 'today' | '7d' | '30d' | '90d') => {
+    const now = new Date(); const from = new Date(now)
+    if (range === 'today') from.setHours(0, 0, 0, 0)
+    else if (range === '7d') from.setDate(now.getDate() - 7)
+    else if (range === '30d') from.setDate(now.getDate() - 30)
+    else from.setDate(now.getDate() - 90)
+    return from.toISOString()
+  }
 
   const [settingsForm, setSettingsForm] = useState({
     store_name: '', store_address: '', store_social: '', footer_text: '',
@@ -215,29 +259,30 @@ function AdminPageContent() {
 
   const fetchReport = useCallback(async () => {
     if (!activeBranchId) return
-    const now = new Date(); const from = new Date(now)
-    if      (reportRange === 'today') from.setHours(0, 0, 0, 0)
-    else if (reportRange === '7d')    from.setDate(now.getDate()-7)
-    else if (reportRange === '30d')   from.setDate(now.getDate()-30)
-    else                              from.setDate(now.getDate()-90)
+    const fromISO = getFromDate(reportRange)
 
     const { data: orders } = await supabase.from('orders')
-      .select('total_price,payment_method')
-      .eq('branch_id', activeBranchId).gte('created_at', from.toISOString()).eq('status', 'COMPLETED')
+      .select('total_price, payment_method')
+      .eq('branch_id', activeBranchId)
+      .gte('created_at', fromISO)
+      .eq('status', 'COMPLETED')
+
     const { data: items } = await supabase.from('order_items')
-      .select('menu_name,quantity,orders!inner(created_at,status,branch_id)')
-      .eq('orders.branch_id', activeBranchId).gte('orders.created_at', from.toISOString()).eq('orders.status', 'COMPLETED')
+      .select('menu_name, quantity, orders!inner(created_at, status, branch_id)')
+      .eq('orders.branch_id', activeBranchId)
+      .gte('orders.created_at', fromISO)
+      .eq('orders.status', 'COMPLETED')
 
     if (orders) {
-      const menuMap: Record<string,number> = {}
-      items?.forEach(i => { menuMap[i.menu_name] = (menuMap[i.menu_name]??0) + i.quantity })
-      const menuArr = Object.entries(menuMap).map(([name,qty])=>({name,qty})).sort((a,b)=>b.qty-a.qty)
+      const menuMap: Record<string, number> = {}
+      items?.forEach(i => { menuMap[i.menu_name] = (menuMap[i.menu_name] ?? 0) + i.quantity })
+      const menuArr = Object.entries(menuMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty)
       setReportData({
-        total:       orders.length,
-        revenue:     orders.reduce((s,o) => s+Number(o.total_price), 0),
-        cash:        orders.filter(o => o.payment_method==='CASH').length,
-        qris:        orders.filter(o => o.payment_method==='QRIS').length,
-        topMenus:    menuArr.slice(0, 5),
+        total: orders.length,
+        revenue: orders.reduce((s, o) => s + Number(o.total_price), 0),
+        cash: orders.filter(o => o.payment_method === 'CASH').length,
+        qris: orders.filter(o => o.payment_method === 'QRIS').length,
+        topMenus: menuArr.slice(0, 5),
         bottomMenus: menuArr.slice(-5).reverse(),
       })
     }
@@ -245,12 +290,16 @@ function AdminPageContent() {
 
   const fetchOrderHistory = useCallback(async () => {
     if (!activeBranchId) return
-    const { data } = await supabase.from('orders').select('*,order_items(*)')
+    const fromISO = getFromDate(reportRange)   // ← tambah filter tanggal
+
+    const { data } = await supabase
+      .from('orders').select('*, order_items(*)')
       .eq('branch_id', activeBranchId)
+      .gte('created_at', fromISO)             // ← filter by range
       .order('created_at', { ascending: false })
-      .range((historyPage-1)*PAGE_SIZE, historyPage*PAGE_SIZE-1)
+      .range((historyPage - 1) * PAGE_SIZE, historyPage * PAGE_SIZE - 1)
     if (data) setOrderHistory(data as Order[])
-  }, [activeBranchId, historyPage])
+  }, [activeBranchId, historyPage, reportRange])
 
   const fetchSettings = useCallback(async () => {
     if (!activeBranchId) return
@@ -263,11 +312,89 @@ function AdminPageContent() {
   }, [activeBranchId])
 
   useEffect(() => { fetchMenus(); fetchCategories() }, [fetchMenus, fetchCategories])
-  useEffect(() => { if (tab==='staff')    fetchStaff()    }, [tab, fetchStaff])
-  useEffect(() => { if (tab==='report')   { fetchReport(); fetchOrderHistory() } }, [tab, fetchReport, fetchOrderHistory])
-  useEffect(() => { if (tab==='settings') fetchSettings() }, [tab, fetchSettings])
-  useEffect(() => { if (tab==='report')   fetchReport()   }, [reportRange, fetchReport])
-  useEffect(() => { if (tab==='report')   fetchOrderHistory() }, [historyPage, fetchOrderHistory])
+  useEffect(() => { if (tab === 'staff') fetchStaff() }, [tab, fetchStaff])
+  useEffect(() => {
+    if (tab !== 'report' || !activeBranchId) return
+
+    // Cleanup channel lama
+    if (reportChannelRef.current) {
+      supabase.removeChannel(reportChannelRef.current)
+      reportChannelRef.current = null
+    }
+
+    const channel = supabase.channel(`report-${activeBranchId}-${Date.now()}`)
+      .on('postgres_changes', {
+        event: '*',   // INSERT, UPDATE, DELETE
+        schema: 'public',
+        table: 'orders',
+        filter: `branch_id=eq.${activeBranchId}`,
+      }, () => {
+        // Re-fetch saat ada perubahan order di branch ini
+        fetchReport()
+        fetchOrderHistory()
+      })
+      .subscribe()
+
+    reportChannelRef.current = channel
+
+    return () => {
+      supabase.removeChannel(channel)
+      reportChannelRef.current = null
+    }
+  }, [tab, activeBranchId, fetchReport, fetchOrderHistory])
+  useEffect(() => { if (tab === 'settings') fetchSettings() }, [tab, fetchSettings])
+  useEffect(() => {
+    if (tab === 'report' && activeBranchId) {
+      setHistoryPage(1)
+      fetchReport()
+      fetchOrderHistory()
+    }
+  }, [tab, activeBranchId, reportRange])
+  useEffect(() => {
+    if (tab === 'report' && activeBranchId) fetchOrderHistory()
+  }, [historyPage, fetchOrderHistory])
+
+  useEffect(() => {
+    if (tab !== 'report' || !activeBranchId) return
+    if (reportChannelRef.current) {
+      supabase.removeChannel(reportChannelRef.current)
+      reportChannelRef.current = null
+    }
+    const channel = supabase.channel(`report-${activeBranchId}-${Date.now()}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'orders',
+        filter: `branch_id=eq.${activeBranchId}`,
+      }, () => { fetchReport(); fetchOrderHistory() })
+      .subscribe()
+    reportChannelRef.current = channel
+    return () => { supabase.removeChannel(channel); reportChannelRef.current = null }
+  }, [tab, activeBranchId])
+
+  // ── MARK AS COMPLETE ──
+  const markComplete = async (orderId: string) => {
+    const { error } = await supabase.from('orders')
+      .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+    if (error) toast.error(error.message)
+    else toast.success('Order ditandai selesai')
+    // Realtime akan otomatis refresh, tapi fetch manual sebagai fallback:
+    fetchOrderHistory()
+    fetchReport()
+  }
+
+  // ── FILTER CLIENT-SIDE untuk tabel laporan ──
+  const filteredOrders = orderHistory.filter(o => {
+    const matchInvoice = !searchInvoice
+      || o.order_number.toLowerCase().includes(searchInvoice.toLowerCase())
+    const matchPelayan = filterPelayan === 'all'
+      || o.served_by_name === filterPelayan
+    return matchInvoice && matchPelayan
+  })
+
+  // Daftar unik pelayan dari orderHistory:
+  const pelayanList = Array.from(new Set(
+    orderHistory.map(o => o.served_by_name).filter(Boolean)
+  ))
 
   // ── ACTIONS ──
 
@@ -306,8 +433,34 @@ function AdminPageContent() {
   }
 
   const deleteCat = async (c: Category) => {
-    if (!confirm(`Hapus "${c.name}"?`)) return
-    await supabase.from('categories').delete().eq('id', c.id); toast.success('Dihapus'); fetchCategories()
+    // Hitung berapa menu yang akan terhapus
+    const { count } = await supabase
+      .from('menus')
+      .select('*', { count: 'exact', head: true })
+      .eq('category', c.name)
+      .eq('branch_id', activeBranchId)
+
+    const menuCount = count ?? 0
+    const msg = menuCount > 0
+      ? `Hapus kategori "${c.name}"?\n\n⚠️ Ini akan menghapus ${menuCount} menu yang terkait!`
+      : `Hapus kategori "${c.name}"?`
+
+    if (!confirm(msg)) return
+
+    // Hapus semua menu di kategori ini dulu
+    if (menuCount > 0) {
+      await supabase.from('menus').delete()
+        .eq('category', c.name)
+        .eq('branch_id', activeBranchId)
+    }
+
+    // Baru hapus kategorinya
+    const { error } = await supabase.from('categories').delete().eq('id', c.id)
+    if (error) { toast.error(error.message); return }
+
+    toast.success(`Kategori "${c.name}" dan ${menuCount} menu terkait dihapus`)
+    fetchCategories()
+    fetchMenus()   // refresh tabel menu juga
   }
 
   const handleAddStaff = async () => {
@@ -335,18 +488,143 @@ function AdminPageContent() {
     toast.success('Role diupdate'); fetchStaff()
   }
 
+  const handleDeleteStaff = async (staffId: string, staffName: string) => {
+    if (!confirm(`Hapus pegawai "${staffName}"?\n\nAkun ini akan dihapus permanen dan tidak bisa dikembalikan.`)) return
+    try {
+      const res = await fetch('/api/admin/delete-employee', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId: staffId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`${staffName} berhasil dihapus`)
+      fetchStaff()
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal menghapus pegawai')
+    }
+  }
+
+  const exportCSV = () => {
+    if (!orderHistory.length) { toast.error('Tidak ada data untuk diekspor'); return }
+    const rows = [
+      ['No. Order', 'Tanggal', 'Pelanggan', 'Dilayani', 'Jenis', 'Meja', 'Total', 'Bayar', 'Status'],
+      ...orderHistory.map(o => [
+        o.order_number,
+        formatDate(o.created_at),
+        o.customer_name || '-',
+        o.served_by_name || '-',
+        o.order_type === 'DINE_IN' ? 'Makan di Sini' : 'Bungkus',
+        o.order_type === 'TAKEAWAY' ? '-' : o.table_number,
+        o.total_price,
+        o.payment_method,
+        o.status,
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `laporan-${reportRange}-${new Date().toISOString().split('T')[0]}.csv`
+    a.click(); URL.revokeObjectURL(url)
+  }
+
+  const printReceiptFromReport = async (order: Order) => {
+    const { data: settings } = await supabase
+      .from('store_settings').select('*')
+      .eq('branch_id', activeBranchId!).maybeSingle()
+
+    const rp = (n: number) => new Intl.NumberFormat('id-ID', {
+      style: 'currency', currency: 'IDR', minimumFractionDigits: 0
+    }).format(n)
+
+    const cashRcv = order.cash_received || 0
+    const chg = cashRcv - order.total_price
+    const timeStr = new Date(order.created_at).toLocaleString('id-ID', {
+      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    })
+    const items = order.order_items ?? []
+
+    const itemRows = items.map(i => `
+    <tr>
+      <td style="padding:2px 4px">${i.menu_name}${i.notes ? `<br/><span style="font-size:10px;color:#888">↳ ${i.notes}</span>` : ''}
+        <br/><span style="font-size:10px;color:#888">${rp(i.unit_price)}</span></td>
+      <td style="padding:2px 4px;text-align:center">${i.quantity}</td>
+      <td style="padding:2px 4px;text-align:right">${rp(i.unit_price * i.quantity)}</td>
+    </tr>`).join('')
+
+    const cashSection = order.payment_method === 'CASH' && cashRcv > 0
+      ? `<tr><td colspan="2" style="padding:2px 4px;color:#555">Bayar</td><td style="padding:2px 4px;text-align:right">${rp(cashRcv)}</td></tr>
+       <tr><td colspan="2" style="padding:2px 4px;font-weight:bold">Kembali</td><td style="padding:2px 4px;text-align:right;font-weight:bold">${rp(Math.max(0, chg))}</td></tr>`
+      : order.payment_method === 'LATER'
+        ? `<tr><td colspan="3" style="text-align:center;color:#D97706;font-weight:bold;padding:4px">⏰ BELUM LUNAS</td></tr>`
+        : ''
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+    <title>Struk ${order.order_number}</title>
+    <style>*{box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;width:80mm;margin:0 auto;padding:6px}
+    .center{text-align:center}.divider{border-top:1px dashed #000;margin:5px 0}
+    table{width:100%;border-collapse:collapse}th{font-size:11px;border-bottom:1px solid #000;padding:2px 4px;text-align:left}
+    .total-row td{font-weight:bold;border-top:1px dashed #000;padding-top:4px;font-size:13px}
+    @media print{body{margin:0}}</style></head><body>
+    <div class="center">
+      <div style="font-size:16px;font-weight:900">${settings?.store_name ?? 'kasir-dapur'}</div>
+      ${settings?.store_address ? `<div style="font-size:11px;color:#555">${settings.store_address}</div>` : ''}
+      ${settings?.store_social ? `<div style="font-size:11px;color:#555">${settings.store_social}</div>` : ''}
+    </div>
+    <div class="divider"></div>
+    <table><tbody>
+      <tr><td style="color:#555">No. Order</td><td style="font-weight:bold;text-align:right">${order.order_number}</td></tr>
+      <tr><td style="color:#555">Tanggal</td><td style="text-align:right">${timeStr}</td></tr>
+      <tr><td style="color:#555">Jenis</td><td style="text-align:right">${order.order_type === 'DINE_IN' ? 'Makan di Sini' : 'Bungkus'}</td></tr>
+      <tr><td style="color:#555">Meja</td><td style="text-align:right">${order.order_type === 'TAKEAWAY' ? '-' : order.table_number}</td></tr>
+      ${order.customer_name ? `<tr><td style="color:#555">Pelanggan</td><td style="text-align:right">${order.customer_name}</td></tr>` : ''}
+      ${order.served_by_name ? `<tr><td style="color:#555">Dilayani</td><td style="text-align:right">${order.served_by_name}</td></tr>` : ''}
+    </tbody></table>
+    <div class="divider"></div>
+    <table>
+      <thead><tr><th>Menu</th><th style="text-align:center">Qty</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${itemRows}</tbody>
+      <tfoot>
+        <tr class="total-row"><td colspan="2">TOTAL</td><td style="text-align:right">${rp(order.total_price)}</td></tr>
+        <tr><td colspan="2" style="padding:2px 4px;color:#555">Pembayaran</td><td style="padding:2px 4px;text-align:right">${order.payment_method}</td></tr>
+        ${cashSection}
+      </tfoot>
+    </table>
+    <div class="divider"></div>
+    <div class="center" style="margin-top:8px;font-size:12px">${settings?.footer_text ?? 'Terima kasih!'}</div>
+    <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
+    </body></html>`
+
+    const win = window.open('', '_blank', 'width=400,height=600')
+    if (win) { win.document.write(html); win.document.close() }
+  }
+
   // CHANGED: Settings save — bedakan field yang boleh admin edit
   const handleSettingsSave = async () => {
     if (!activeBranchId) return
-    // ADMIN hanya bisa update social dan footer
+
     const updateData = isOwner
-      ? settingsForm // OWNER bisa update semua
-      : { store_social: settingsForm.store_social, footer_text: settingsForm.footer_text } // ADMIN hanya ini
+      ? settingsForm
+      : { store_social: settingsForm.store_social, footer_text: settingsForm.footer_text }
 
     const { error } = await supabase.from('store_settings')
       .upsert({ branch_id: activeBranchId, ...updateData }, { onConflict: 'branch_id' })
-    if (error) toast.error(error.message)
-    else toast.success('Pengaturan disimpan')
+
+    if (error) { toast.error(error.message); return }
+
+    // ← FIX: sync nama dan alamat ke tabel branches juga (biar card di owner page ikut update)
+    if (isOwner) {
+      await supabase.from('branches').update({
+        name: settingsForm.store_name,
+        address: settingsForm.store_address,
+      }).eq('id', activeBranchId)
+    }
+
+    toast.success('Pengaturan disimpan')
+
+    // Juga refresh settings form biar tampilan profile toko langsung update
+    fetchSettings()
   }
 
   const tabs: {id:Tab,label:string}[] = [
@@ -549,6 +827,7 @@ function AdminPageContent() {
                 isOwner={isOwner}
                 onRoleChange={updateStaffRole}
                 onDataChange={fetchStaff}
+                onDelete={handleDeleteStaff}
               />
             ))}
           </div>
@@ -556,23 +835,34 @@ function AdminPageContent() {
       )}
 
       {/* ═══ TAB: REPORT ═══ */}
-      {tab==='report' && (
+      {tab === 'report' && (
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
             <h2 className="text-base font-bold">Laporan Penjualan</h2>
             <div className="flex gap-1.5">
-              {(['today','7d','30d','90d'] as const).map(r=>(
-                <button key={r} onClick={()=>{setReportRange(r);setHistoryPage(1)}}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${reportRange===r?'bg-orange-600 text-white':'bg-gray-800 text-gray-400'}`}>
-                  {r==='today'?'Hari Ini':r==='7d'?'7 Hari':r==='30d'?'30 Hari':'90 Hari'}
+              {(['today', '7d', '30d', '90d'] as const).map(r => (
+                <button key={r} onClick={() => { setReportRange(r); setHistoryPage(1) }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${reportRange === r ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                  {r === 'today' ? 'Hari Ini' : r === '7d' ? '7 Hari' : r === '30d' ? '30 Hari' : '90 Hari'}
                 </button>
               ))}
             </div>
+            {/* ← Export CSV kembali */}
+            <button onClick={exportCSV}
+              className="ml-auto px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs font-semibold text-gray-300">
+              ⬇️ Export CSV
+            </button>
           </div>
+
+          {/* Summary cards */}
           {reportData && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              {[['🧾',`${reportData.total}`,'Total Order'],['💰',formatRupiah(reportData.revenue),'Pendapatan'],
-                ['💵',`${reportData.cash} order`,'Cash'],['📱',`${reportData.qris} order`,'QRIS']].map(([ico,val,lbl])=>(
+              {[
+                ['🧾', `${reportData.total}`, 'Total Order'],
+                ['💰', formatRupiah(reportData.revenue), 'Pendapatan'],
+                ['💵', `${reportData.cash} order`, 'Cash'],
+                ['📱', `${reportData.qris} order`, 'QRIS'],
+              ].map(([ico, val, lbl]) => (
                 <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                   <div className="text-2xl mb-1">{ico}</div>
                   <div className="text-lg font-black text-white">{val}</div>
@@ -581,40 +871,94 @@ function AdminPageContent() {
               ))}
             </div>
           )}
+
+          {/* Filter bar */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            <input placeholder="🔍 Cari nomor invoice..." value={searchInvoice}
+              onChange={e => setSearchInvoice(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs
+          text-white placeholder-gray-600 focus:outline-none focus:border-orange-500 w-48"/>
+            <select value={filterPelayan} onChange={e => setFilterPelayan(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white">
+              <option value="all">Semua Pelayan</option>
+              {pelayanList.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            {(searchInvoice || filterPelayan !== 'all') && (
+              <button onClick={() => { setSearchInvoice(''); setFilterPelayan('all') }}
+                className="px-3 py-1.5 bg-gray-700 rounded-lg text-xs text-gray-400">✕ Reset</button>
+            )}
+            <span className="ml-auto text-xs text-gray-600 self-center">
+              {filteredOrders.length} order{(searchInvoice || filterPelayan !== 'all') ? ' (difilter)' : ''}
+            </span>
+          </div>
+
+          {/* Tabel — tambah kolom Jenis dan Struk */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
               <thead className="bg-gray-800 text-gray-400 uppercase">
-                <tr>{['No. Order','Waktu','Pelanggan','Pelayan','Total','Bayar','Status'].map(h=>(
-                  <th key={h} className="px-3 py-2.5 text-left whitespace-nowrap">{h}</th>
-                ))}</tr>
+                <tr>
+                  {['No. Order', 'Waktu', 'Pelanggan', 'Pelayan', 'Jenis', 'Total', 'Bayar', 'Status', 'Aksi'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-left whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {orderHistory.map(o=>(
+                {filteredOrders.map(o => (
                   <tr key={o.id} className="hover:bg-gray-800/30">
                     <td className="px-3 py-2 font-mono font-bold text-orange-400">{o.order_number}</td>
                     <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{formatDate(o.created_at)}</td>
-                    <td className="px-3 py-2">{o.customer_name||'-'}</td>
-                    <td className="px-3 py-2">{o.served_by_name||'-'}</td>
+                    <td className="px-3 py-2">{o.customer_name || '-'}</td>
+                    <td className="px-3 py-2">{o.served_by_name || '-'}</td>
+                    {/* ← kolom Jenis baru */}
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${o.order_type === 'DINE_IN'
+                        ? 'bg-blue-900 text-blue-400'
+                        : 'bg-amber-900 text-amber-400'}`}>
+                        {o.order_type === 'DINE_IN' ? '🪑 Dine In' : '📦 Bungkus'}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 font-bold">{formatRupiah(o.total_price)}</td>
                     <td className="px-3 py-2 text-gray-400">{o.payment_method}</td>
                     <td className="px-3 py-2">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        o.status==='COMPLETED'?'bg-green-900 text-green-400'
-                        :o.status==='CANCELLED'?'bg-red-900 text-red-400'
-                        :'bg-yellow-900 text-yellow-400'}`}>
+                        o.status === 'COMPLETED' ? 'bg-green-900 text-green-400'
+                          : o.status === 'CANCELLED' ? 'bg-red-900 text-red-400'
+                            : 'bg-yellow-900 text-yellow-400'}`}>
                         {o.status}
                       </span>
+                    </td>
+                    {/* ← kolom Aksi dengan struk + selesai */}
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1.5 min-w-[120px]">
+                        <button onClick={() => printReceiptFromReport(o)}
+                          className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
+                          Struk
+                        </button>
+                        {o.status === 'READY' && (
+                          <button onClick={() => markComplete(o.id)}
+                            className="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-400
+                        rounded text-xs font-bold whitespace-nowrap">
+                            Selesai
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {filteredOrders.length === 0 && (
+              <div className="text-center text-gray-600 py-8 text-sm">
+                {searchInvoice || filterPelayan !== 'all' ? 'Tidak ada order yang cocok dengan filter' : 'Belum ada order'}
+              </div>
+            )}
           </div>
+
           <div className="flex gap-2 justify-end mt-3 text-xs">
-            <button onClick={()=>setHistoryPage(p=>Math.max(1,p-1))} disabled={historyPage===1}
+            <button onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1}
               className="px-3 py-1.5 bg-gray-800 rounded disabled:opacity-40">← Prev</button>
             <span className="px-3 py-1.5 text-gray-400">Hal. {historyPage}</span>
-            <button onClick={()=>setHistoryPage(p=>p+1)} disabled={orderHistory.length<PAGE_SIZE}
+            <button onClick={() => setHistoryPage(p => p + 1)} disabled={orderHistory.length < PAGE_SIZE}
               className="px-3 py-1.5 bg-gray-800 rounded disabled:opacity-40">Next →</button>
           </div>
         </div>
@@ -630,6 +974,26 @@ function AdminPageContent() {
               ⚠️ Nama dan alamat toko hanya bisa diubah oleh Owner. Kamu bisa edit sosial media dan teks penutup struk.
             </p>
           )}
+
+          {/* ── Profile toko saat ini (read) ── */}
+          <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4 mb-5 flex items-center gap-4">
+            <div className="text-4xl">🏪</div>
+            <div>
+              <div className="font-bold text-white text-base">
+                {settingsForm.store_name || 'Belum diatur'}
+              </div>
+              {settingsForm.store_address && (
+                <div className="text-xs text-gray-400 mt-0.5">📍 {settingsForm.store_address}</div>
+              )}
+              {settingsForm.store_social && (
+                <div className="text-xs text-gray-400 mt-0.5">📱 {settingsForm.store_social}</div>
+              )}
+              <div className="text-xs text-gray-600 mt-1 italic">
+                "{settingsForm.footer_text}"
+              </div>
+            </div>
+          </div>
+
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-4 max-w-lg">
 
             {/* Nama Toko — read-only untuk admin */}
