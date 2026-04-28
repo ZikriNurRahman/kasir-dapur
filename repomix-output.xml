@@ -59,6 +59,8 @@ src/
         update-employee/
           route.ts
       midtrans/
+        check/
+          route.ts
         webhook/
           route.ts
         route.ts
@@ -128,76 +130,55 @@ tsconfig.json
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/app/api/admin/delete-employee/route.ts">
+<file path="src/app/api/midtrans/check/route.ts">
+// Cek status transaksi Midtrans secara manual
+// GET /api/midtrans/check?orderId=STR-XXXXXXX
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  )
-}
+export async function GET(request: NextRequest) {
+  const orderId = request.nextUrl.searchParams.get('orderId')
+  if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 })
 
-export async function DELETE(request: NextRequest) {
-  try {
-    const cookieStore = await cookies()
-    const supabaseUser = createServerClient(
+  const serverKey = process.env.MIDTRANS_SERVER_KEY!
+  const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
+  const baseUrl = isProduction
+    ? 'https://api.midtrans.com'
+    : 'https://api.sandbox.midtrans.com'
+
+  // Hit Midtrans API untuk cek status
+  const res = await fetch(`${baseUrl}/v2/${orderId}/status`, {
+    headers: {
+      'Authorization': 'Basic ' + Buffer.from(serverKey + ':').toString('base64'),
+    },
+  })
+
+  const data = await res.json()
+  const { transaction_status, fraud_status } = data
+
+  const isSuccess =
+    transaction_status === 'settlement' ||
+    (transaction_status === 'capture' && fraud_status === 'accept')
+
+  // Kalau memang sudah dibayar, update DB sekalian
+  if (isSuccess) {
+    const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { getAll: () => cookieStore.getAll() } }
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
-
-    const { data: { user } } = await supabaseUser.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { data: requesterProfile } = await supabaseUser
-      .from('profiles').select('role, branch_id').eq('id', user.id).single()
-
-    if (!requesterProfile || !['OWNER', 'ADMIN'].includes(requesterProfile.role)) {
-      return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 })
-    }
-
-    const { targetUserId } = await request.json()
-    if (!targetUserId) return NextResponse.json({ error: 'targetUserId wajib diisi' }, { status: 400 })
-
-    const adminClient = getAdminClient()
-
-    // Cek target
-    const { data: targetProfile } = await adminClient
-      .from('profiles').select('role, branch_id').eq('id', targetUserId).single()
-
-    // Tidak bisa hapus diri sendiri
-    if (targetUserId === user.id) {
-      return NextResponse.json({ error: 'Tidak bisa menghapus akun sendiri' }, { status: 400 })
-    }
-    // Tidak bisa hapus OWNER
-    if (targetProfile?.role === 'OWNER') {
-      return NextResponse.json({ error: 'Tidak bisa menghapus akun Owner' }, { status: 403 })
-    }
-    // ADMIN hanya bisa hapus di cabang sendiri, dan tidak bisa hapus sesama ADMIN
-    if (requesterProfile.role === 'ADMIN') {
-      if (targetProfile?.branch_id !== requesterProfile.branch_id) {
-        return NextResponse.json({ error: 'Tidak bisa hapus pegawai cabang lain' }, { status: 403 })
-      }
-      if (targetProfile?.role === 'ADMIN') {
-        return NextResponse.json({ error: 'Admin tidak bisa hapus sesama Admin' }, { status: 403 })
-      }
-    }
-
-    // Hapus dari auth.users (otomatis hapus profiles juga karena FK cascade)
-    const { error } = await adminClient.auth.admin.deleteUser(targetUserId)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-    return NextResponse.json({ success: true, message: 'Pegawai berhasil dihapus' })
-
-  } catch (err) {
-    console.error('Delete employee error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    await supabase
+      .from('orders')
+      .update({ status: 'PENDING' })
+      .eq('order_number', orderId)
+      .in('status', ['PENDING_PAYMENT', 'CANCELLED'])
   }
+
+  return NextResponse.json({
+    transaction_status,
+    fraud_status,
+    isSuccess,
+  })
 }
 </file>
 
@@ -382,6 +363,79 @@ export default function AdminPage() {
 }
 </file>
 
+<file path="src/app/api/admin/delete-employee/route.ts">
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const cookieStore = await cookies()
+    const supabaseUser = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => cookieStore.getAll() } }
+    )
+
+    const { data: { user } } = await supabaseUser.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { data: requesterProfile } = await supabaseUser
+      .from('profiles').select('role, branch_id').eq('id', user.id).single()
+
+    if (!requesterProfile || !['OWNER', 'ADMIN'].includes(requesterProfile.role)) {
+      return NextResponse.json({ error: 'Akses ditolak' }, { status: 403 })
+    }
+
+    const { targetUserId } = await request.json()
+    if (!targetUserId) return NextResponse.json({ error: 'targetUserId wajib diisi' }, { status: 400 })
+
+    const adminClient = getAdminClient()
+
+    // Cek target
+    const { data: targetProfile } = await adminClient
+      .from('profiles').select('role, branch_id').eq('id', targetUserId).single()
+
+    // Tidak bisa hapus diri sendiri
+    if (targetUserId === user.id) {
+      return NextResponse.json({ error: 'Tidak bisa menghapus akun sendiri' }, { status: 400 })
+    }
+    // Tidak bisa hapus OWNER
+    if (targetProfile?.role === 'OWNER') {
+      return NextResponse.json({ error: 'Tidak bisa menghapus akun Owner' }, { status: 403 })
+    }
+    // ADMIN hanya bisa hapus di cabang sendiri, dan tidak bisa hapus sesama ADMIN
+    if (requesterProfile.role === 'ADMIN') {
+      if (targetProfile?.branch_id !== requesterProfile.branch_id) {
+        return NextResponse.json({ error: 'Tidak bisa hapus pegawai cabang lain' }, { status: 403 })
+      }
+      if (targetProfile?.role === 'ADMIN') {
+        return NextResponse.json({ error: 'Admin tidak bisa hapus sesama Admin' }, { status: 403 })
+      }
+    }
+
+    // Hapus dari auth.users (otomatis hapus profiles juga karena FK cascade)
+    const { error } = await adminClient.auth.admin.deleteUser(targetUserId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+    return NextResponse.json({ success: true, message: 'Pegawai berhasil dihapus' })
+
+  } catch (err) {
+    console.error('Delete employee error:', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+</file>
+
 <file path="src/app/api/admin/update-employee/route.ts">
 // src/app/api/admin/update-employee/route.ts
 // API untuk edit data pegawai: display_name, username, dan reset password
@@ -549,7 +603,7 @@ export async function POST(request: NextRequest) {
         .from('orders')
         .update({ status: 'PENDING' })
         .eq('order_number', order_id)          // order_id Midtrans = order_number kita
-        .eq('status', 'PENDING_PAYMENT')       // safety check
+        .eq('status', ['PENDING_PAYMENT', 'CANCELLED'])       // safety check
 
       if (error) console.error('Supabase update error:', error)
       else console.log(`Order ${order_id} berhasil dibayar → PENDING`)
@@ -577,27 +631,12 @@ export async function POST(request: NextRequest) {
 </file>
 
 <file path="src/app/api/midtrans/route.ts">
-// src/app/api/midtrans/route.ts
-// API route untuk generate QRIS Midtrans
-//
-// Kenapa server-side?
-// MIDTRANS_SERVER_KEY tidak boleh expose ke browser.
-// Server-side route ini yang call Midtrans API dengan server key.
-//
-// Midtrans Core API QRIS:
-// Sandbox URL: https://api.sandbox.midtrans.com/v2/charge
-// Production:  https://api.midtrans.com/v2/charge
-//
-// Env yang dibutuhkan di .env.local:
-// MIDTRANS_SERVER_KEY=Mid-server-xxxxx
-// MIDTRANS_IS_PRODUCTION=false
-
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
-    const { orderId, grossAmount, dbOrderId } = await request.json()
+    const { orderId, grossAmount, dbOrderId, items } = await request.json()
 
     const serverKey = process.env.MIDTRANS_SERVER_KEY
     if (!serverKey) {
@@ -609,15 +648,13 @@ export async function POST(request: NextRequest) {
 
     const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true'
     const baseUrl      = isProduction
-      ? 'https://api.midtrans.com'
-      : 'https://api.sandbox.midtrans.com'
+      ? 'https://app.midtrans.com'
+      : 'https://app.sandbox.midtrans.com'
 
-    // Encode server key ke base64 untuk header Authorization
-    // Format: "Basic " + base64(serverKey + ":")
     const authHeader = 'Basic ' + Buffer.from(serverKey + ':').toString('base64')
 
-    // Buat charge QRIS ke Midtrans Core API
-    const response = await fetch(`${baseUrl}/v2/charge`, {
+    // Snap API — sama seperti Safiya Veil
+    const response = await fetch(`${baseUrl}/snap/v1/transactions`, {
       method:  'POST',
       headers: {
         'Authorization': authHeader,
@@ -625,39 +662,35 @@ export async function POST(request: NextRequest) {
         'Accept':        'application/json',
       },
       body: JSON.stringify({
-        payment_type: 'qris',
         transaction_details: {
-          order_id:     orderId,     // nomor order dari kasir-dapur
-          gross_amount: grossAmount, // total dalam Rupiah (integer)
+          order_id: orderId,
+          gross_amount: Math.round(grossAmount),
         },
-        // Tambahan metadata — opsional tapi berguna untuk rekonsiliasi
-        custom_field1: dbOrderId,   // id order di database kita
+        // Batasi hanya QRIS — sesuai payment method yang aktif
+        enabled_payments: ['other_qris'],
+        custom_field1: dbOrderId,
       }),
     })
 
     const data = await response.json()
+    console.log('[Midtrans Snap] Response:', JSON.stringify(data, null, 2))
 
-    if (!response.ok) {
-      console.error('Midtrans error:', data)
+    if (!response.ok || data.error_messages?.length > 0) {
       return NextResponse.json(
-        { error: data.status_message ?? 'Midtrans error' },
+        { error: data.error_messages?.[0] ?? `Snap error (${response.status})` },
         { status: 400 }
       )
     }
 
-    // Midtrans response untuk QRIS:
-    // data.qr_string — string yang dipakai untuk generate QR code
-    // data.transaction_id — ID transaksi Midtrans
-    // data.transaction_status — harusnya "pending"
-
+    // Snap response: { token, redirect_url }
     return NextResponse.json({
-      qrString:      data.qr_string,
-      transactionId: data.transaction_id,
-      orderId:       orderId,
+      snapToken: data.token,
+      snapUrl: data.redirect_url,
+      orderId,
     })
 
   } catch (error) {
-    console.error('Midtrans API error:', error)
+    console.error('[Midtrans Snap] Error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -715,240 +748,6 @@ export async function GET(request: NextRequest) {
 }
 </file>
 
-<file path="src/app/home/dashboard/page.tsx">
-// src/app/home/dashboard/page.tsx
-// Halaman baru — dashboard performa employee
-// Berisi: pesanan yang dilayani sendiri + filter tanggal + cetak struk
-
-'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
-import { formatRupiah } from '@/lib/utils'
-import { toast } from 'sonner'
-import type { Order } from '@/types/database'
-
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleString('id-ID', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-
-export default function EmployeeDashboardPage() {
-  const [userId,    setUserId]    = useState<string>('')
-  const [userName,  setUserName]  = useState<string>('')
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
-  const [orders,    setOrders]    = useState<Order[]>([])
-  const [summary,   setSummary]   = useState<{total:number,revenue:number,cash:number,qris:number} | null>(null)
-  const [loading,   setLoading]   = useState(true)
-
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      setUserId(user.id)
-      const { data: p } = await supabase.from('profiles').select('display_name').eq('id', user.id).single()
-      setUserName(p?.display_name || user.email?.split('@')[0] || '')
-    }
-    getUser()
-  }, [])
-
-  const fetchMyOrders = useCallback(async () => {
-    if (!userId) return
-    setLoading(true)
-    const { data } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('served_by', userId)  // hanya pesanan yang dilayani dia
-      .gte('created_at', `${reportDate}T00:00:00`)
-      .lte('created_at', `${reportDate}T23:59:59`)
-      .order('created_at', { ascending: false })
-
-    if (data) {
-      setOrders(data as Order[])
-      setSummary({
-        total:   data.length,
-        revenue: data.reduce((s,o) => s + Number(o.total_price), 0),
-        cash:    data.filter(o => o.payment_method === 'CASH').length,
-        qris:    data.filter(o => o.payment_method === 'QRIS').length,
-      })
-    }
-    setLoading(false)
-  }, [userId, reportDate])
-
-  useEffect(() => { fetchMyOrders() }, [fetchMyOrders])
-
-  // Tambah fungsi markComplete:
-const markComplete = async (orderId: string) => {
-  const { error } = await supabase.from('orders')
-    .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
-    .eq('id', orderId)
-  if (error) toast.error(error.message)
-  else {
-    toast.success('Order ditandai selesai')
-    fetchMyOrders()
-  }
-}
-
-  // Print struk — sama dengan di CartPanel
-  const printReceipt = async (order: Order) => {
-     const { data: { user } } = await supabase.auth.getUser()
-  const { data: profile } = user
-    ? await supabase.from('profiles').select('branch_id').eq('id', user.id).single()
-    : { data: null }
-    const { data: settings } = await supabase.from('store_settings').select('*').eq('branch_id', profile?.branch_id ?? '').single()
-    const cashRcv = order.cash_received || 0
-    const chg     = cashRcv - order.total_price
-    const rp = (n: number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',minimumFractionDigits:0}).format(n)
-    const timeStr = new Date(order.created_at).toLocaleString('id-ID', {
-      day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'
-    })
-    const items = order.order_items ?? []
-    const storeName = settings?.store_name ?? 'kasir-dapur'
-
-    const itemRows = items.map(i => `
-      <tr>
-        <td style="padding:2px 4px">${i.menu_name}
-          ${i.notes ? `<br/><span style="color:#888;font-size:10px">↳ ${i.notes}</span>` : ''}
-          <br/><span style="color:#888;font-size:10px">${rp(i.unit_price)}</span>
-        </td>
-        <td style="padding:2px 4px;text-align:center">${i.quantity}</td>
-        <td style="padding:2px 4px;text-align:right">${rp(i.unit_price * i.quantity)}</td>
-      </tr>
-    `).join('')
-
-    const cashSection = order.payment_method === 'CASH' && cashRcv > 0
-      ? `<tr><td colspan="2" style="padding:2px 4px;color:#555">Bayar</td><td style="padding:2px 4px;text-align:right">${rp(cashRcv)}</td></tr>
-         <tr><td colspan="2" style="padding:2px 4px;font-weight:bold">Kembali</td><td style="padding:2px 4px;text-align:right;font-weight:bold">${rp(Math.max(0,chg))}</td></tr>`
-      : ''
-
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-      <title>Struk ${order.order_number}</title>
-      <style>*{box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;width:80mm;margin:0 auto;padding:6px;color:#000}.center{text-align:center}.divider{border-top:1px dashed #000;margin:5px 0}table{width:100%;border-collapse:collapse}th{font-size:11px;border-bottom:1px solid #000;padding:2px 4px;text-align:left}.total-row td{font-weight:bold;border-top:1px dashed #000;padding-top:4px;font-size:13px}@media print{body{margin:0}}</style>
-      </head><body>
-      <div class="center"><div style="font-size:16px;font-weight:900">${storeName}</div>
-      ${settings?.store_address ? `<div style="font-size:11px;color:#555">${settings.store_address}</div>` : ''}
-      ${settings?.store_social ? `<div style="font-size:11px;color:#555">${settings.store_social}</div>` : ''}</div>
-      <div class="divider"></div>
-      <table><tbody>
-        <tr><td style="color:#555">No. Order</td><td style="font-weight:bold;text-align:right">${order.order_number}</td></tr>
-        <tr><td style="color:#555">Tanggal</td><td style="text-align:right">${timeStr}</td></tr>
-        <tr><td style="color:#555">Jenis</td><td style="text-align:right">${order.order_type==='DINE_IN'?'Makan di Sini':'Bungkus'}</td></tr>
-        <tr><td style="color:#555">Meja</td><td style="text-align:right">${order.order_type==='TAKEAWAY'?'-':order.table_number}</td></tr>
-        ${order.customer_name ? `<tr><td style="color:#555">Pelanggan</td><td style="text-align:right">${order.customer_name}</td></tr>` : ''}
-        ${order.served_by_name ? `<tr><td style="color:#555">Dilayani</td><td style="text-align:right">${order.served_by_name}</td></tr>` : ''}
-      </tbody></table>
-      <div class="divider"></div>
-      <table>
-        <thead><tr><th>Menu</th><th style="text-align:center">Qty</th><th style="text-align:right">Total</th></tr></thead>
-        <tbody>${itemRows}</tbody>
-        <tfoot>
-          <tr class="total-row"><td colspan="2">TOTAL</td><td style="text-align:right">${rp(order.total_price)}</td></tr>
-          <tr><td colspan="2" style="padding:2px 4px;color:#555">Pembayaran</td><td style="padding:2px 4px;text-align:right">${order.payment_method}</td></tr>
-          ${cashSection}
-        </tfoot>
-      </table>
-      <div class="divider"></div>
-      <div class="center" style="margin-top:8px;font-size:12px">${settings?.footer_text ?? 'Terima kasih!'}</div>
-      <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
-      </body></html>`
-
-    const win = window.open('', '_blank', 'width=400,height=600')
-    if (win) { win.document.write(html); win.document.close() }
-  }
-
-  return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto w-full">
-      <div className="flex flex-wrap items-center gap-3 mb-5">
-        <h1 className="text-base font-bold">📊 Dashboard — {userName}</h1>
-        <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm ml-auto"/>
-      </div>
-
-      {/* Summary cards */}
-      {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          {[
-            ['🧾', `${summary.total}`, 'Total Order'],
-            ['💰', formatRupiah(summary.revenue), 'Total Nilai'],
-            ['💵', `${summary.cash} order`, 'Bayar Cash'],
-            ['📱', `${summary.qris} order`, 'Bayar QRIS'],
-          ].map(([ico, val, lbl]) => (
-            <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <div className="text-2xl mb-1">{ico}</div>
-              <div className="text-lg font-black text-white">{val}</div>
-              <div className="text-xs text-gray-500">{lbl}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tabel riwayat pesanan */}
-      <h2 className="text-sm font-bold mb-3">Pesanan Hari Ini</h2>
-      {loading ? (
-        <div className="text-center text-gray-600 py-8">Memuat...</div>
-      ) : orders.length === 0 ? (
-        <div className="text-center text-gray-600 py-8">Belum ada pesanan hari ini</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
-            <thead className="bg-gray-800 text-gray-400 uppercase">
-              <tr>
-                {['No. Order','Waktu','Pelanggan','Pesanan','Total','Bayar','Status','Aksi'].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-left whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {orders.map(o => (
-                <tr key={o.id} className="hover:bg-gray-800/30">
-                  <td className="px-3 py-2 font-mono font-bold text-orange-400">{o.order_number}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-400">{formatDate(o.created_at)}</td>
-                  <td className="px-3 py-2">{o.customer_name || '-'}</td>
-                  <td className="px-3 py-2 max-w-[160px]">
-                    <div className="truncate text-gray-400">
-                      {o.order_items?.map(i => `${i.quantity}x ${i.menu_name}`).join(', ')}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 font-bold text-white whitespace-nowrap">{formatRupiah(o.total_price)}</td>
-                  <td className="px-3 py-2 text-gray-400">{o.payment_method}</td>
-                  <td className="px-3 py-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                      o.status === 'COMPLETED' ? 'bg-green-900 text-green-400'
-                      : o.status === 'CANCELLED' ? 'bg-red-900 text-red-400'
-                      : 'bg-yellow-900 text-yellow-400'
-                    }`}>{o.status}</span>
-                  </td>
-                  <td className="px-3 py-2">
-  <div className="flex gap-1.5">
-    <button onClick={() => printReceipt(o)}
-      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
-      🖨️ Struk
-    </button>
-    {o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && (
-      <button onClick={() => markComplete(o.id)}
-        className="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-400 rounded text-xs font-bold">
-        ✓ Selesai
-      </button>
-    )}
-  </div>
-</td>
-                  <td className="px-3 py-2">
-                    <button onClick={() => printReceipt(o)}
-                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
-                      🖨️ Struk
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-</file>
-
 <file path="src/app/home/kds/layout.tsx">
 // src/app/home/kds/layout.tsx
 // UPDATE: path pindah ke /home/kds
@@ -957,324 +756,6 @@ const markComplete = async (orderId: string) => {
 
 export default function KDSLayout({ children }: { children: React.ReactNode }) {
   return <div className="fixed inset-0 overflow-hidden">{children}</div>
-}
-</file>
-
-<file path="src/app/kds/layout.tsx">
-// // Layout khusus KDS — fixed fullscreen, tidak ada elemen global lain
-// export default function KDSLayout({ children }: { children: React.ReactNode }) {
-//   return <div className="fixed inset-0 overflow-hidden">{children}</div>
-// }
-</file>
-
-<file path="src/app/kds/page.tsx">
-// 'use client'
-// import { useEffect, useState, useCallback } from 'react'
-// import { supabase } from '@/lib/supabase'
-// import { OrderCard } from '@/components/kds/OrderCard'
-// import type { Order } from '@/types/database'
-
-// export default function KDSPage() {
-//   const [orders, setOrders] = useState<Order[]>([])
-//   const [connected, setConnected] = useState(false)
-
-//   // Ambil semua order PENDING yang sudah ada saat halaman dibuka
-//   const fetchPending = useCallback(async () => {
-//     const { data } = await supabase
-//       .from('orders')
-//       .select('*, order_items(*)')
-//       .eq('status', 'PENDING')
-//       .order('created_at', { ascending: true }) // FIFO — pertama masuk, pertama keluar
-//     if (data) setOrders(data as Order[])
-//   }, [])
-
-//   useEffect(() => {
-//     fetchPending()
-
-//     // Subscribe ke semua perubahan di tabel orders via WebSocket
-//     const channel = supabase
-//       .channel('kds-realtime')
-
-//       // Event INSERT — pesanan baru dari kasir
-//       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
-//         async (payload) => {
-//           // Payload INSERT tidak menyertakan order_items, fetch ulang dengan join
-//           const { data } = await supabase
-//             .from('orders').select('*, order_items(*)')
-//             .eq('id', payload.new.id).single()
-//           if (data) setOrders(prev => [...prev, data as Order])
-//         }
-//       )
-
-//       // Event UPDATE — status berubah (misalnya READY atau COMPLETED)
-//       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
-//         (payload) => {
-//           // Kalau tidak PENDING lagi, hapus dari board
-//           if (payload.new.status !== 'PENDING') {
-//             setOrders(prev => prev.filter(o => o.id !== payload.new.id))
-//           }
-//         }
-//       )
-
-//       .subscribe(status => setConnected(status === 'SUBSCRIBED'))
-
-//     // Cleanup saat komponen unmount (pindah halaman)
-//     return () => { supabase.removeChannel(channel) }
-//   }, [fetchPending])
-
-//   // Dipanggil dari OrderCard saat dapur klik "Siap Saji"
-//   const handleMarkReady = async (orderId: string) => {
-//     await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
-//     // Tidak perlu update state manual — listener UPDATE di atas yang handle
-//   }
-
-//   return (
-//     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-
-//       {/* Header status bar */}
-//       <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
-//         <h1 className="text-xl font-bold">🍳 DAPUR</h1>
-//         <div className="flex items-center gap-4">
-//           <span className="text-3xl font-black text-orange-400">{orders.length}</span>
-//           <div className="flex items-center gap-2">
-//             <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
-//             <span className="text-xs text-gray-400">{connected ? 'LIVE' : 'Reconnecting...'}</span>
-//           </div>
-//         </div>
-//       </header>
-
-//       <main className="flex-1 p-5 overflow-x-auto">
-//         {orders.length === 0 ? (
-//           <div className="h-full flex flex-col items-center justify-center text-gray-700">
-//             <span className="text-8xl mb-4">✅</span>
-//             <p className="text-2xl font-bold">Semua Pesanan Selesai</p>
-//           </div>
-//         ) : (
-//           <div className="flex gap-4 h-full">
-//             {orders.map(order => (
-//               <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
-//             ))}
-//           </div>
-//         )}
-//       </main>
-//     </div>
-//   )
-// }
-</file>
-
-<file path="src/app/pos/page.tsx">
-// 'use client'
-// import { useEffect, useState } from 'react'
-// import { supabase } from '@/lib/supabase'
-// import { MenuGrid } from '@/components/pos/MenuGrid'
-// import { CartPanel } from '@/components/pos/CartPanel'
-// import type { Menu } from '@/types/database'
-
-// const CATEGORIES = ['Semua', 'Makanan', 'Minuman', 'Snack']
-
-// export default function POSPage() {
-//   const [menus, setMenus] = useState<Menu[]>([])
-//   const [category, setCategory] = useState('Semua')
-//   const [search, setSearch] = useState('')
-
-//   useEffect(() => {
-//     const fetchMenus = async () => {
-//       const { data } = await supabase.from('menus').select('*').order('name')
-//       if (data) setMenus(data as Menu[])
-//     }
-//     fetchMenus()
-
-//     // Subscribe perubahan menu — kalau admin toggle ketersediaan, langsung update di POS
-//     const ch = supabase.channel('menus-changes')
-//       .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
-//       .subscribe()
-//     return () => { supabase.removeChannel(ch) }
-//   }, [])
-
-//   // Filter berdasarkan kategori dan search
-//   const filtered = menus.filter(m => {
-//     const okCat = category === 'Semua' || m.category === category
-//     const okSearch = m.name.toLowerCase().includes(search.toLowerCase())
-//     return okCat && okSearch
-//   })
-
-//   return (
-//     <div className="h-screen flex bg-gray-950 text-white overflow-hidden">
-
-//       {/* Panel Kiri — Menu */}
-//       <div className="flex-1 flex flex-col min-w-0">
-//         <div className="px-4 pt-4 pb-3 bg-gray-900 border-b border-gray-800">
-//           <div className="flex justify-between mb-3">
-//             <h1 className="font-bold text-lg">🍽️ kasir-dapur</h1>
-//             <input placeholder="Cari menu..." value={search}
-//               onChange={e => setSearch(e.target.value)}
-//               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-44 focus:outline-none focus:border-orange-500"/>
-//           </div>
-//           <div className="flex gap-2 overflow-x-auto">
-//             {CATEGORIES.map(cat => (
-//               <button key={cat} onClick={() => setCategory(cat)}
-//                 className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap shrink-0
-//                   ${category === cat ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
-//                 {cat}
-//               </button>
-//             ))}
-//           </div>
-//         </div>
-//         <div className="flex-1 overflow-y-auto p-4">
-//           <MenuGrid menus={filtered}/>
-//         </div>
-//       </div>
-
-//       {/* Panel Kanan — Cart */}
-//       <div className="w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex flex-col">
-//         <CartPanel/>
-//       </div>
-//     </div>
-//   )
-// }
-</file>
-
-<file path="src/app/register/page.tsx">
-'use client'
-import { useState } from 'react'
-import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-
-export default function RegisterPage() {
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [name,     setName]     = useState('')   // display name pemilik
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
-  const [success,  setSuccess]  = useState(false)
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true); setError('')
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        // Semua yang daftar lewat halaman ini otomatis jadi OWNER
-        data: { role: 'OWNER', display_name: name },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-
-    if (error) {
-      if (error.message.includes('already registered')) {
-        setError('Email ini sudah terdaftar. Coba masuk.')
-      } else if (error.message.includes('Password should be')) {
-        setError('Password minimal 6 karakter.')
-      } else {
-        setError(error.message)
-      }
-      setLoading(false)
-      return
-    }
-
-    setSuccess(true)
-    setLoading(false)
-  }
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm text-center">
-          <div className="text-5xl mb-4">📧</div>
-          <h2 className="text-xl font-bold text-white mb-2">Cek Email Kamu</h2>
-          <p className="text-gray-400 text-sm mb-2">
-            Kami kirim link verifikasi ke{' '}
-            <strong className="text-white">{email}</strong>.
-          </p>
-          <p className="text-gray-500 text-xs mb-6">
-            Klik link di email untuk mengaktifkan akun pemilik tokomu.
-          </p>
-          <Link href="/login" className="text-orange-400 hover:text-orange-300 text-sm font-semibold">
-            ← Kembali ke halaman masuk
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-3">🍽️</div>
-          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
-          <p className="text-gray-500 text-sm mt-1">Daftar sebagai Pemilik Toko</p>
-        </div>
-
-        <div className="bg-orange-950/40 border border-orange-900/50 rounded-xl px-4 py-3 mb-5">
-          <p className="text-xs text-orange-400 font-semibold">👑 Akun Pemilik</p>
-          <p className="text-xs text-gray-500 mt-1">
-            Halaman ini khusus untuk pemilik toko. Admin dan pegawai didaftarkan langsung oleh pemilik dari dalam aplikasi.
-          </p>
-        </div>
-
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Nama Lengkap</label>
-            <input
-              type="text" value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Nama pemilik toko"
-              required
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-                text-sm text-white placeholder-gray-600
-                focus:outline-none focus:border-orange-500 transition-colors"/>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
-            <input
-              type="email" value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="email@toko.com"
-              required
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-                text-sm text-white placeholder-gray-600
-                focus:outline-none focus:border-orange-500 transition-colors"/>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Password</label>
-            <input
-              type="password" value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Min. 6 karakter"
-              required minLength={6}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-                text-sm text-white placeholder-gray-600
-                focus:outline-none focus:border-orange-500 transition-colors"/>
-          </div>
-
-          {error && (
-            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          <button type="submit" disabled={loading}
-            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
-              disabled:text-gray-600 text-white font-bold py-3 rounded-lg transition-colors text-sm">
-            {loading ? 'Mendaftar...' : 'Daftar sebagai Pemilik'}
-          </button>
-        </form>
-
-        <p className="text-center text-sm text-gray-600 mt-6">
-          Sudah punya akun?{' '}
-          <Link href="/login" className="text-orange-400 hover:text-orange-300 font-semibold">
-            Masuk
-          </Link>
-        </p>
-      </div>
-    </div>
-  )
 }
 </file>
 
@@ -1796,66 +1277,6 @@ export async function createServerSupabase() {
 }
 </file>
 
-<file path="src/lib/utils.ts">
-import { differenceInMinutes } from 'date-fns'
-
-// Format angka ke Rupiah — e.g., 25000 → "Rp 25.000"
-export function formatRupiah(amount: number): string {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', minimumFractionDigits: 0
-  }).format(amount)
-}
-
-// Hitung berapa menit sejak order dibuat
-export function getOrderAge(createdAt: string): number {
-  return differenceInMinutes(new Date(), new Date(createdAt))
-}
-
-// Tentukan warna card KDS berdasarkan umur order
-// Hijau <10 mnt · Kuning 10-20 mnt · Merah >20 mnt + berkedip
-export function getTimerStyle(createdAt: string) {
-  const mins = getOrderAge(createdAt)
-  if (mins < 10) return {
-    bg: 'bg-green-950', border: 'border-green-500',
-    text: 'text-green-400', blink: false, label: `${mins}m`
-  }
-  if (mins < 20) return {
-    bg: 'bg-yellow-950', border: 'border-yellow-500',
-    text: 'text-yellow-400', blink: false, label: `${mins}m`
-  }
-  return {
-    bg: 'bg-red-950', border: 'border-red-500',
-    text: 'text-red-400', blink: true, label: `${mins}m ⚠️`
-  }
-}
-
-// Format jam order untuk tampilan di KDS — e.g., "14:35"
-export function formatTime(createdAt: string): string {
-  return new Date(createdAt).toLocaleTimeString('id-ID', {
-    hour: '2-digit', minute: '2-digit'
-  })
-}
-
-// Helper gabung class names Tailwind (tanpa install clsx)
-export function cn(...classes: (string | boolean | undefined)[]): string {
-  return classes.filter(Boolean).join(' ')
-}
-
-// Format invoice code
-export function generateOrderNumber(branchCode: string): string {
-  const code = (branchCode || 'STR')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(0, 3)
-    .toUpperCase()
-    .padEnd(3, 'X')
-
-  const ts = Math.floor(Date.now() / 100).toString(36).toUpperCase()
-  const timePart = ts.padStart(7, '0')
-
-  return `${code}-${timePart}`
-}
-</file>
-
 <file path="AGENTS.md">
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
@@ -2042,6 +1463,876 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
   ],
   "exclude": ["node_modules"]
 }
+</file>
+
+<file path="src/app/home/dashboard/page.tsx">
+// src/app/home/dashboard/page.tsx
+// Halaman baru — dashboard performa employee
+// Berisi: pesanan yang dilayani sendiri + filter tanggal + cetak struk
+
+'use client'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+import { formatRupiah } from '@/lib/utils'
+import { toast } from 'sonner'
+import type { Order } from '@/types/database'
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleString('id-ID', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+
+export default function EmployeeDashboardPage() {
+  const [userId,    setUserId]    = useState<string>('')
+  const [userName,  setUserName]  = useState<string>('')
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
+  const [orders,    setOrders]    = useState<Order[]>([])
+  const [summary,   setSummary]   = useState<{total:number,revenue:number,cash:number,qris:number} | null>(null)
+  const [loading,   setLoading]   = useState(true)
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setUserId(user.id)
+      const { data: p } = await supabase.from('profiles').select('display_name').eq('id', user.id).single()
+      setUserName(p?.display_name || user.email?.split('@')[0] || '')
+    }
+    getUser()
+  }, [])
+
+  const fetchMyOrders = useCallback(async () => {
+    if (!userId) return
+    setLoading(true)
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('served_by', userId)  // hanya pesanan yang dilayani dia
+      .gte('created_at', `${reportDate}T00:00:00`)
+      .lte('created_at', `${reportDate}T23:59:59`)
+      .order('created_at', { ascending: false })
+
+    if (data) {
+      setOrders(data as Order[])
+      setSummary({
+        total:   data.length,
+        revenue: data.reduce((s,o) => s + Number(o.total_price), 0),
+        cash:    data.filter(o => o.payment_method === 'CASH').length,
+        qris:    data.filter(o => o.payment_method === 'QRIS').length,
+      })
+    }
+    setLoading(false)
+  }, [userId, reportDate])
+
+  useEffect(() => { fetchMyOrders() }, [fetchMyOrders])
+
+  useEffect(() => {
+    if (!userId) return
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+
+    const channel = supabase
+      .channel(`dashboard-${userId}-${reportDate}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `served_by=eq.${userId}`,
+      }, () => fetchMyOrders())
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'order_items',
+      }, () => fetchMyOrders())
+      .subscribe()
+
+    channelRef.current = channel
+
+    return () => {
+      supabase.removeChannel(channel)
+      channelRef.current = null
+    }
+  }, [userId, reportDate, fetchMyOrders])
+
+  // Tambah fungsi markComplete:
+  const markComplete = async (orderId: string) => {
+    const { error } = await supabase.from('orders')
+      .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+    if (error) toast.error(error.message)
+    else {
+      toast.success('Order ditandai selesai')
+      fetchMyOrders()
+    }
+  }
+
+  // Print struk — sama dengan di CartPanel
+  const printReceipt = async (order: Order) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('branch_id').eq('id', user.id).single()
+      : { data: null }
+    const { data: settings } = await supabase.from('store_settings').select('*').eq('branch_id', profile?.branch_id ?? '').single()
+    const cashRcv = order.cash_received || 0
+    const chg     = cashRcv - order.total_price
+    const rp = (n: number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',minimumFractionDigits:0}).format(n)
+    const timeStr = new Date(order.created_at).toLocaleString('id-ID', {
+      day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'
+    })
+    const items = order.order_items ?? []
+    const storeName = settings?.store_name ?? 'kasir-dapur'
+
+    const itemRows = items.map(i => `
+      <tr>
+        <td style="padding:2px 4px">${i.menu_name}
+          ${i.notes ? `<br/><span style="color:#888;font-size:10px">↳ ${i.notes}</span>` : ''}
+          <br/><span style="color:#888;font-size:10px">${rp(i.unit_price)}</span>
+        </td>
+        <td style="padding:2px 4px;text-align:center">${i.quantity}</td>
+        <td style="padding:2px 4px;text-align:right">${rp(i.unit_price * i.quantity)}</td>
+      </tr>
+    `).join('')
+
+    const cashSection = order.payment_method === 'CASH' && cashRcv > 0
+      ? `<tr><td colspan="2" style="padding:2px 4px;color:#555">Bayar</td><td style="padding:2px 4px;text-align:right">${rp(cashRcv)}</td></tr>
+         <tr><td colspan="2" style="padding:2px 4px;font-weight:bold">Kembali</td><td style="padding:2px 4px;text-align:right;font-weight:bold">${rp(Math.max(0,chg))}</td></tr>`
+      : ''
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+      <title>Struk ${order.order_number}</title>
+      <style>*{box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;width:80mm;margin:0 auto;padding:6px;color:#000}.center{text-align:center}.divider{border-top:1px dashed #000;margin:5px 0}table{width:100%;border-collapse:collapse}th{font-size:11px;border-bottom:1px solid #000;padding:2px 4px;text-align:left}.total-row td{font-weight:bold;border-top:1px dashed #000;padding-top:4px;font-size:13px}@media print{body{margin:0}}</style>
+      </head><body>
+      <div class="center"><div style="font-size:16px;font-weight:900">${storeName}</div>
+      ${settings?.store_address ? `<div style="font-size:11px;color:#555">${settings.store_address}</div>` : ''}
+      ${settings?.store_social ? `<div style="font-size:11px;color:#555">${settings.store_social}</div>` : ''}</div>
+      <div class="divider"></div>
+      <table><tbody>
+        <tr><td style="color:#555">No. Order</td><td style="font-weight:bold;text-align:right">${order.order_number}</td></tr>
+        <tr><td style="color:#555">Tanggal</td><td style="text-align:right">${timeStr}</td></tr>
+        <tr><td style="color:#555">Jenis</td><td style="text-align:right">${order.order_type==='DINE_IN'?'Makan di Sini':'Bungkus'}</td></tr>
+        <tr><td style="color:#555">Meja</td><td style="text-align:right">${order.order_type==='TAKEAWAY'?'-':order.table_number}</td></tr>
+        ${order.customer_name ? `<tr><td style="color:#555">Pelanggan</td><td style="text-align:right">${order.customer_name}</td></tr>` : ''}
+        ${order.served_by_name ? `<tr><td style="color:#555">Dilayani</td><td style="text-align:right">${order.served_by_name}</td></tr>` : ''}
+      </tbody></table>
+      <div class="divider"></div>
+      <table>
+        <thead><tr><th>Menu</th><th style="text-align:center">Qty</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+        <tfoot>
+          <tr class="total-row"><td colspan="2">TOTAL</td><td style="text-align:right">${rp(order.total_price)}</td></tr>
+          <tr><td colspan="2" style="padding:2px 4px;color:#555">Pembayaran</td><td style="padding:2px 4px;text-align:right">${order.payment_method}</td></tr>
+          ${cashSection}
+        </tfoot>
+      </table>
+      <div class="divider"></div>
+      <div class="center" style="margin-top:8px;font-size:12px">${settings?.footer_text ?? 'Terima kasih!'}</div>
+      <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
+      </body></html>`
+
+    const win = window.open('', '_blank', 'width=400,height=600')
+    if (win) { win.document.write(html); win.document.close() }
+  }
+
+  return (
+    <div className="p-4 md:p-6 max-w-4xl mx-auto w-full">
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <h1 className="text-base font-bold">📊 Dashboard — {userName}</h1>
+        <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm ml-auto"/>
+      </div>
+
+      {/* Summary cards */}
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          {[
+            ['🧾', `${summary.total}`, 'Total Order'],
+            ['💰', formatRupiah(summary.revenue), 'Total Nilai'],
+            ['💵', `${summary.cash} order`, 'Bayar Cash'],
+            ['📱', `${summary.qris} order`, 'Bayar QRIS'],
+          ].map(([ico, val, lbl]) => (
+            <div key={String(lbl)} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-2xl mb-1">{ico}</div>
+              <div className="text-lg font-black text-white">{val}</div>
+              <div className="text-xs text-gray-500">{lbl}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabel riwayat pesanan */}
+      <h2 className="text-sm font-bold mb-3">Pesanan Hari Ini</h2>
+      {loading ? (
+        <div className="text-center text-gray-600 py-8">Memuat...</div>
+      ) : orders.length === 0 ? (
+        <div className="text-center text-gray-600 py-8">Belum ada pesanan hari ini</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
+            <thead className="bg-gray-800 text-gray-400 uppercase">
+              <tr>
+                {['No. Order','Waktu','Pelanggan','Pesanan','Total','Bayar','Status','Aksi'].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-left whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {orders.map(o => (
+                <tr key={o.id} className="hover:bg-gray-800/30">
+                  <td className="px-3 py-2 font-mono font-bold text-orange-400">{o.order_number}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-gray-400">{formatDate(o.created_at)}</td>
+                  <td className="px-3 py-2">{o.customer_name || '-'}</td>
+                  <td className="px-3 py-2 max-w-[160px]">
+                    <div className="truncate text-gray-400">
+                      {o.order_items?.map(i => `${i.quantity}x ${i.menu_name}`).join(', ')}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 font-bold text-white whitespace-nowrap">{formatRupiah(o.total_price)}</td>
+                  <td className="px-3 py-2 text-gray-400">{o.payment_method}</td>
+                  <td className="px-3 py-2">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      o.status === 'COMPLETED' ? 'bg-green-900 text-green-400'
+                      : o.status === 'CANCELLED' ? 'bg-red-900 text-red-400'
+                      : 'bg-yellow-900 text-yellow-400'
+                    }`}>{o.status}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-1.5">
+                      {o.status === 'READY' && (
+                        <button onClick={() => markComplete(o.id)}
+                          className="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-400 rounded text-xs font-bold">
+                          ✓ Selesai
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => printReceipt(o)}
+                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
+                      🖨️ Struk
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/kds/layout.tsx">
+// // Layout khusus KDS — fixed fullscreen, tidak ada elemen global lain
+// export default function KDSLayout({ children }: { children: React.ReactNode }) {
+//   return <div className="fixed inset-0 overflow-hidden">{children}</div>
+// }
+</file>
+
+<file path="src/app/kds/page.tsx">
+// 'use client'
+// import { useEffect, useState, useCallback } from 'react'
+// import { supabase } from '@/lib/supabase'
+// import { OrderCard } from '@/components/kds/OrderCard'
+// import type { Order } from '@/types/database'
+
+// export default function KDSPage() {
+//   const [orders, setOrders] = useState<Order[]>([])
+//   const [connected, setConnected] = useState(false)
+
+//   // Ambil semua order PENDING yang sudah ada saat halaman dibuka
+//   const fetchPending = useCallback(async () => {
+//     const { data } = await supabase
+//       .from('orders')
+//       .select('*, order_items(*)')
+//       .eq('status', 'PENDING')
+//       .order('created_at', { ascending: true }) // FIFO — pertama masuk, pertama keluar
+//     if (data) setOrders(data as Order[])
+//   }, [])
+
+//   useEffect(() => {
+//     fetchPending()
+
+//     // Subscribe ke semua perubahan di tabel orders via WebSocket
+//     const channel = supabase
+//       .channel('kds-realtime')
+
+//       // Event INSERT — pesanan baru dari kasir
+//       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' },
+//         async (payload) => {
+//           // Payload INSERT tidak menyertakan order_items, fetch ulang dengan join
+//           const { data } = await supabase
+//             .from('orders').select('*, order_items(*)')
+//             .eq('id', payload.new.id).single()
+//           if (data) setOrders(prev => [...prev, data as Order])
+//         }
+//       )
+
+//       // Event UPDATE — status berubah (misalnya READY atau COMPLETED)
+//       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+//         (payload) => {
+//           // Kalau tidak PENDING lagi, hapus dari board
+//           if (payload.new.status !== 'PENDING') {
+//             setOrders(prev => prev.filter(o => o.id !== payload.new.id))
+//           }
+//         }
+//       )
+
+//       .subscribe(status => setConnected(status === 'SUBSCRIBED'))
+
+//     // Cleanup saat komponen unmount (pindah halaman)
+//     return () => { supabase.removeChannel(channel) }
+//   }, [fetchPending])
+
+//   // Dipanggil dari OrderCard saat dapur klik "Siap Saji"
+//   const handleMarkReady = async (orderId: string) => {
+//     await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
+//     // Tidak perlu update state manual — listener UPDATE di atas yang handle
+//   }
+
+//   return (
+//     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+
+//       {/* Header status bar */}
+//       <header className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800">
+//         <h1 className="text-xl font-bold">🍳 DAPUR</h1>
+//         <div className="flex items-center gap-4">
+//           <span className="text-3xl font-black text-orange-400">{orders.length}</span>
+//           <div className="flex items-center gap-2">
+//             <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
+//             <span className="text-xs text-gray-400">{connected ? 'LIVE' : 'Reconnecting...'}</span>
+//           </div>
+//         </div>
+//       </header>
+
+//       <main className="flex-1 p-5 overflow-x-auto">
+//         {orders.length === 0 ? (
+//           <div className="h-full flex flex-col items-center justify-center text-gray-700">
+//             <span className="text-8xl mb-4">✅</span>
+//             <p className="text-2xl font-bold">Semua Pesanan Selesai</p>
+//           </div>
+//         ) : (
+//           <div className="flex gap-4 h-full">
+//             {orders.map(order => (
+//               <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
+//             ))}
+//           </div>
+//         )}
+//       </main>
+//     </div>
+//   )
+// }
+</file>
+
+<file path="src/app/pos/page.tsx">
+// 'use client'
+// import { useEffect, useState } from 'react'
+// import { supabase } from '@/lib/supabase'
+// import { MenuGrid } from '@/components/pos/MenuGrid'
+// import { CartPanel } from '@/components/pos/CartPanel'
+// import type { Menu } from '@/types/database'
+
+// const CATEGORIES = ['Semua', 'Makanan', 'Minuman', 'Snack']
+
+// export default function POSPage() {
+//   const [menus, setMenus] = useState<Menu[]>([])
+//   const [category, setCategory] = useState('Semua')
+//   const [search, setSearch] = useState('')
+
+//   useEffect(() => {
+//     const fetchMenus = async () => {
+//       const { data } = await supabase.from('menus').select('*').order('name')
+//       if (data) setMenus(data as Menu[])
+//     }
+//     fetchMenus()
+
+//     // Subscribe perubahan menu — kalau admin toggle ketersediaan, langsung update di POS
+//     const ch = supabase.channel('menus-changes')
+//       .on('postgres_changes', { event: '*', schema: 'public', table: 'menus' }, fetchMenus)
+//       .subscribe()
+//     return () => { supabase.removeChannel(ch) }
+//   }, [])
+
+//   // Filter berdasarkan kategori dan search
+//   const filtered = menus.filter(m => {
+//     const okCat = category === 'Semua' || m.category === category
+//     const okSearch = m.name.toLowerCase().includes(search.toLowerCase())
+//     return okCat && okSearch
+//   })
+
+//   return (
+//     <div className="h-screen flex bg-gray-950 text-white overflow-hidden">
+
+//       {/* Panel Kiri — Menu */}
+//       <div className="flex-1 flex flex-col min-w-0">
+//         <div className="px-4 pt-4 pb-3 bg-gray-900 border-b border-gray-800">
+//           <div className="flex justify-between mb-3">
+//             <h1 className="font-bold text-lg">🍽️ kasir-dapur</h1>
+//             <input placeholder="Cari menu..." value={search}
+//               onChange={e => setSearch(e.target.value)}
+//               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-44 focus:outline-none focus:border-orange-500"/>
+//           </div>
+//           <div className="flex gap-2 overflow-x-auto">
+//             {CATEGORIES.map(cat => (
+//               <button key={cat} onClick={() => setCategory(cat)}
+//                 className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap shrink-0
+//                   ${category === cat ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+//                 {cat}
+//               </button>
+//             ))}
+//           </div>
+//         </div>
+//         <div className="flex-1 overflow-y-auto p-4">
+//           <MenuGrid menus={filtered}/>
+//         </div>
+//       </div>
+
+//       {/* Panel Kanan — Cart */}
+//       <div className="w-[340px] shrink-0 border-l border-gray-800 bg-gray-900 flex flex-col">
+//         <CartPanel/>
+//       </div>
+//     </div>
+//   )
+// }
+</file>
+
+<file path="src/app/register/page.tsx">
+'use client'
+import { useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+
+export default function RegisterPage() {
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [name,     setName]     = useState('')   // display name pemilik
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [success,  setSuccess]  = useState(false)
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true); setError('')
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        // Semua yang daftar lewat halaman ini otomatis jadi OWNER
+        data: { role: 'OWNER', display_name: name },
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    if (error) {
+      if (error.message.includes('already registered')) {
+        setError('Email ini sudah terdaftar. Coba masuk.')
+      } else if (error.message.includes('Password should be')) {
+        setError('Password minimal 6 karakter.')
+      } else {
+        setError(error.message)
+      }
+      setLoading(false)
+      return
+    }
+
+    setSuccess(true)
+    setLoading(false)
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="text-5xl mb-4">📧</div>
+          <h2 className="text-xl font-bold text-white mb-2">Cek Email Kamu</h2>
+          <p className="text-gray-400 text-sm mb-2">
+            Kami kirim link verifikasi ke{' '}
+            <strong className="text-white">{email}</strong>.
+          </p>
+          <p className="text-gray-500 text-xs mb-6">
+            Klik link di email untuk mengaktifkan akun pemilik tokomu.
+          </p>
+          <Link href="/login" className="text-orange-400 hover:text-orange-300 text-sm font-semibold">
+            ← Kembali ke halaman masuk
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-3">🍽️</div>
+          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
+          <p className="text-gray-500 text-sm mt-1">Daftar sebagai Pemilik Toko</p>
+        </div>
+
+        <div className="bg-orange-950/40 border border-orange-900/50 rounded-xl px-4 py-3 mb-5">
+          <p className="text-xs text-orange-400 font-semibold">👑 Akun Pemilik</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Halaman ini khusus untuk pemilik toko. Admin dan pegawai didaftarkan langsung oleh pemilik dari dalam aplikasi.
+          </p>
+        </div>
+
+        <form onSubmit={handleRegister} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Nama Lengkap</label>
+            <input
+              type="text" value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Nama pemilik toko"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"/>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
+            <input
+              type="email" value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="email@toko.com"
+              required
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"/>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Password</label>
+            <input
+              type="password" value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Min. 6 karakter"
+              required minLength={6}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+                text-sm text-white placeholder-gray-600
+                focus:outline-none focus:border-orange-500 transition-colors"/>
+          </div>
+
+          {error && (
+            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
+              disabled:text-gray-600 text-white font-bold py-3 rounded-lg transition-colors text-sm">
+            {loading ? 'Mendaftar...' : 'Daftar sebagai Pemilik'}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Sudah punya akun?{' '}
+          <Link href="/login" className="text-orange-400 hover:text-orange-300 font-semibold">
+            Masuk
+          </Link>
+        </p>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/page.tsx">
+// src/app/page.tsx
+// UPDATE: ganti halaman default Next.js → redirect ke /home atau /login
+//
+// Ini Server Component — bisa langsung akses sesi tanpa useEffect
+// Middleware sebenarnya sudah handle redirect, tapi ini sebagai fallback
+
+import { redirect } from 'next/navigation'
+import { createServerSupabase } from '@/lib/supabase-server'
+
+export default async function RootPage() {
+  const supabase = await createServerSupabase()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Sudah login → ke homepage
+  if (user) redirect('/home')
+
+  // Belum login → ke halaman login
+  redirect('/login')
+}
+</file>
+
+<file path="src/lib/supabase.ts">
+import { createBrowserClient } from '@supabase/ssr'
+
+// Singleton — satu instance untuk seluruh aplikasi
+// NEXT_PUBLIC_ agar bisa diakses dari browser (client component)
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  // {
+  //   realtime: {
+  //     timeout: 30000, // 30 detik — lebih toleran di jaringan restoran
+  //   },
+  // }
+)
+</file>
+
+<file path="src/lib/utils.ts">
+import { differenceInMinutes } from 'date-fns'
+
+// Format angka ke Rupiah — e.g., 25000 → "Rp 25.000"
+export function formatRupiah(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency', currency: 'IDR', minimumFractionDigits: 0
+  }).format(amount)
+}
+
+// Hitung berapa menit sejak order dibuat
+export function getOrderAge(createdAt: string): number {
+  return differenceInMinutes(new Date(), new Date(createdAt))
+}
+
+// Tentukan warna card KDS berdasarkan umur order
+// Hijau <10 mnt · Kuning 10-20 mnt · Merah >20 mnt + berkedip
+export function getTimerStyle(createdAt: string) {
+  const mins = getOrderAge(createdAt)
+  if (mins < 10) return {
+    bg: 'bg-green-950', border: 'border-green-500',
+    text: 'text-green-400', blink: false, label: `${mins}m`
+  }
+  if (mins < 20) return {
+    bg: 'bg-yellow-950', border: 'border-yellow-500',
+    text: 'text-yellow-400', blink: false, label: `${mins}m`
+  }
+  return {
+    bg: 'bg-red-950', border: 'border-red-500',
+    text: 'text-red-400', blink: true, label: `${mins}m ⚠️`
+  }
+}
+
+// Format jam order untuk tampilan di KDS — e.g., "14:35"
+export function formatTime(createdAt: string): string {
+  return new Date(createdAt).toLocaleTimeString('id-ID', {
+    hour: '2-digit', minute: '2-digit'
+  })
+}
+
+// Helper gabung class names Tailwind (tanpa install clsx)
+export function cn(...classes: (string | boolean | undefined)[]): string {
+  return classes.filter(Boolean).join(' ')
+}
+
+// Format invoice code
+export function generateOrderNumber(branchCode: string): string {
+  const code = (branchCode || 'STR')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 3)
+    .toUpperCase()
+    .padEnd(3, 'X')
+
+  const ts = Math.floor(Date.now() / 2).toString(36).toUpperCase()
+  const timePart = ts.padStart(8, '0')
+
+  return `${code}-${timePart}`
+}
+</file>
+
+<file path="src/store/cart.store.ts">
+// src/store/cart.store.ts
+// UPDATE dari sebelumnya:
+// - Tambah customerName dan orderType ke state
+// - Tambah setCustomerName, setOrderType, setItemNotes
+// - clearCart sekarang juga reset customerName & orderType
+
+import { create } from 'zustand'
+import type { CartItem, Menu, PaymentMethod, OrderType } from '@/types/database'
+
+interface CartStore {
+  items:          CartItem[]
+  tableNumber:    string
+  customerName:   string      // ← baru
+  paymentMethod:  PaymentMethod
+  orderType:      OrderType   // ← baru
+
+  addItem:         (menu: Menu) => void
+  decrementItem:   (menuId: string) => void
+  removeItem:      (menuId: string) => void
+  setQuantity:     (menuId: string, qty: number) => void
+  setItemNotes:    (menuId: string, notes: string) => void  // ← baru
+  clearCart:       () => void
+  setTableNumber:  (t: string) => void
+  setCustomerName: (name: string) => void                   // ← baru
+  setPaymentMethod:(m: PaymentMethod) => void
+  setOrderType:    (t: OrderType) => void                   // ← baru
+  getTotal:        () => number
+  isReadyToCheckout: () => boolean
+}
+
+export const useCartStore = create<CartStore>()((set, get) => ({
+  items:         [],
+  tableNumber:   '',
+  customerName:  '',        // ← default kosong (opsional)
+  paymentMethod: 'CASH',
+  orderType:     'DINE_IN', // ← default makan di tempat
+
+  // Tambah ke cart. Kalau sudah ada → naikkan qty saja
+  addItem: (menu) => set((state) => {
+    const existing = state.items.find(i => i.menuId === menu.id)
+    if (existing) {
+      return {
+        items: state.items.map(i =>
+          i.menuId === menu.id ? { ...i, quantity: i.quantity + 1 } : i
+        ),
+      }
+    }
+    return {
+      items: [...state.items, {
+        menuId:    menu.id,
+        menuName:  menu.name,
+        unitPrice: menu.price,
+        quantity:  1,
+        notes:     '',
+      }],
+    }
+  }),
+
+  // Kurangi qty 1. Kalau sudah 1 → hapus
+  decrementItem: (menuId) => set((state) => {
+    const item = state.items.find(i => i.menuId === menuId)
+    if (!item) return state
+    if (item.quantity <= 1) return { items: state.items.filter(i => i.menuId !== menuId) }
+    return { items: state.items.map(i =>
+      i.menuId === menuId ? { ...i, quantity: i.quantity - 1 } : i
+    )}
+  }),
+
+  removeItem: (menuId) => set(state => ({
+    items: state.items.filter(i => i.menuId !== menuId),
+  })),
+
+  setQuantity: (menuId, qty) => {
+    if (qty <= 0) { get().removeItem(menuId); return }
+    set(state => ({
+      items: state.items.map(i =>
+        i.menuId === menuId ? { ...i, quantity: qty } : i
+      ),
+    }))
+  },
+
+  // UPDATE: set catatan untuk satu item tertentu
+  setItemNotes: (menuId, notes) => set(state => ({
+    items: state.items.map(i =>
+      i.menuId === menuId ? { ...i, notes } : i
+    ),
+  })),
+
+  // Reset semua ke default termasuk field baru
+  clearCart: () => set({
+    items:         [],
+    tableNumber:   '',
+    customerName:  '',
+    paymentMethod: 'CASH',
+    orderType:     'DINE_IN',
+  }),
+
+  setTableNumber:   (tableNumber)   => set({ tableNumber }),
+  setCustomerName:  (customerName)  => set({ customerName }),    // ← baru
+  setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+  setOrderType:     (orderType)     => set({ orderType }),       // ← baru
+
+  getTotal: () => get().items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
+
+  // Cart valid untuk checkout: ada item + nomor meja diisi
+  // Nama pembeli sengaja tidak diwajibkan (opsional)
+  isReadyToCheckout: () =>
+    get().items.length > 0 && get().tableNumber.trim().length > 0,
+}))
+</file>
+
+<file path="src/middleware.ts">
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse }        from 'next/server'
+import type { NextRequest }    from 'next/server'
+
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return request.cookies.getAll() },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  const { data: { user } } = await supabase.auth.getUser()
+  const { pathname } = request.nextUrl
+
+  const isPublicPath = pathname.startsWith('/login')
+    || pathname.startsWith('/register')
+    || pathname.startsWith('/auth/callback')
+
+  if (isPublicPath) {
+    if (user && !pathname.startsWith('/auth/callback'))
+      return NextResponse.redirect(new URL('/home', request.url))
+    return supabaseResponse
+  }
+
+  if (!user) return NextResponse.redirect(new URL('/login', request.url))
+
+  // Proteksi halaman per role
+  const needsRoleCheck =
+    pathname.startsWith('/home/admin') ||
+    pathname.startsWith('/home/owner')
+
+  if (needsRoleCheck) {
+    const { data: profile } = await supabase
+      .from('profiles').select('role').eq('id', user.id).single()
+    const role = profile?.role
+
+    // /home/owner — hanya OWNER
+    if (pathname.startsWith('/home/owner') && role !== 'OWNER')
+      return NextResponse.redirect(new URL('/home', request.url))
+
+    // /home/admin — OWNER dan ADMIN
+    if (pathname.startsWith('/home/admin') && !['OWNER', 'ADMIN'].includes(role ?? ''))
+      return NextResponse.redirect(new URL('/home', request.url))
+  }
+
+  return supabaseResponse
+}
+
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+  allowedDevOrigins: ['applicant-upstage-hastily.ngrok-free.dev'],
+};
+
+export default nextConfig;
 </file>
 
 <file path="src/app/api/admin/create-employee/route.ts">
@@ -2522,412 +2813,6 @@ export default function HomePage() {
 }
 </file>
 
-<file path="src/app/page.tsx">
-// src/app/page.tsx
-// UPDATE: ganti halaman default Next.js → redirect ke /home atau /login
-//
-// Ini Server Component — bisa langsung akses sesi tanpa useEffect
-// Middleware sebenarnya sudah handle redirect, tapi ini sebagai fallback
-
-import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase-server'
-
-export default async function RootPage() {
-  const supabase = await createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  // Sudah login → ke homepage
-  if (user) redirect('/home')
-
-  // Belum login → ke halaman login
-  redirect('/login')
-}
-</file>
-
-<file path="src/lib/supabase.ts">
-import { createBrowserClient } from '@supabase/ssr'
-
-// Singleton — satu instance untuk seluruh aplikasi
-// NEXT_PUBLIC_ agar bisa diakses dari browser (client component)
-export const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  // {
-  //   realtime: {
-  //     timeout: 30000, // 30 detik — lebih toleran di jaringan restoran
-  //   },
-  // }
-)
-</file>
-
-<file path="src/store/cart.store.ts">
-// src/store/cart.store.ts
-// UPDATE dari sebelumnya:
-// - Tambah customerName dan orderType ke state
-// - Tambah setCustomerName, setOrderType, setItemNotes
-// - clearCart sekarang juga reset customerName & orderType
-
-import { create } from 'zustand'
-import type { CartItem, Menu, PaymentMethod, OrderType } from '@/types/database'
-
-interface CartStore {
-  items:          CartItem[]
-  tableNumber:    string
-  customerName:   string      // ← baru
-  paymentMethod:  PaymentMethod
-  orderType:      OrderType   // ← baru
-
-  addItem:         (menu: Menu) => void
-  decrementItem:   (menuId: string) => void
-  removeItem:      (menuId: string) => void
-  setQuantity:     (menuId: string, qty: number) => void
-  setItemNotes:    (menuId: string, notes: string) => void  // ← baru
-  clearCart:       () => void
-  setTableNumber:  (t: string) => void
-  setCustomerName: (name: string) => void                   // ← baru
-  setPaymentMethod:(m: PaymentMethod) => void
-  setOrderType:    (t: OrderType) => void                   // ← baru
-  getTotal:        () => number
-  isReadyToCheckout: () => boolean
-}
-
-export const useCartStore = create<CartStore>()((set, get) => ({
-  items:         [],
-  tableNumber:   '',
-  customerName:  '',        // ← default kosong (opsional)
-  paymentMethod: 'CASH',
-  orderType:     'DINE_IN', // ← default makan di tempat
-
-  // Tambah ke cart. Kalau sudah ada → naikkan qty saja
-  addItem: (menu) => set((state) => {
-    const existing = state.items.find(i => i.menuId === menu.id)
-    if (existing) {
-      return {
-        items: state.items.map(i =>
-          i.menuId === menu.id ? { ...i, quantity: i.quantity + 1 } : i
-        ),
-      }
-    }
-    return {
-      items: [...state.items, {
-        menuId:    menu.id,
-        menuName:  menu.name,
-        unitPrice: menu.price,
-        quantity:  1,
-        notes:     '',
-      }],
-    }
-  }),
-
-  // Kurangi qty 1. Kalau sudah 1 → hapus
-  decrementItem: (menuId) => set((state) => {
-    const item = state.items.find(i => i.menuId === menuId)
-    if (!item) return state
-    if (item.quantity <= 1) return { items: state.items.filter(i => i.menuId !== menuId) }
-    return { items: state.items.map(i =>
-      i.menuId === menuId ? { ...i, quantity: i.quantity - 1 } : i
-    )}
-  }),
-
-  removeItem: (menuId) => set(state => ({
-    items: state.items.filter(i => i.menuId !== menuId),
-  })),
-
-  setQuantity: (menuId, qty) => {
-    if (qty <= 0) { get().removeItem(menuId); return }
-    set(state => ({
-      items: state.items.map(i =>
-        i.menuId === menuId ? { ...i, quantity: qty } : i
-      ),
-    }))
-  },
-
-  // UPDATE: set catatan untuk satu item tertentu
-  setItemNotes: (menuId, notes) => set(state => ({
-    items: state.items.map(i =>
-      i.menuId === menuId ? { ...i, notes } : i
-    ),
-  })),
-
-  // Reset semua ke default termasuk field baru
-  clearCart: () => set({
-    items:         [],
-    tableNumber:   '',
-    customerName:  '',
-    paymentMethod: 'CASH',
-    orderType:     'DINE_IN',
-  }),
-
-  setTableNumber:   (tableNumber)   => set({ tableNumber }),
-  setCustomerName:  (customerName)  => set({ customerName }),    // ← baru
-  setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
-  setOrderType:     (orderType)     => set({ orderType }),       // ← baru
-
-  getTotal: () => get().items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0),
-
-  // Cart valid untuk checkout: ada item + nomor meja diisi
-  // Nama pembeli sengaja tidak diwajibkan (opsional)
-  isReadyToCheckout: () =>
-    get().items.length > 0 && get().tableNumber.trim().length > 0,
-}))
-</file>
-
-<file path="src/middleware.ts">
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse }        from 'next/server'
-import type { NextRequest }    from 'next/server'
-
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll() },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
-
-  const isPublicPath = pathname.startsWith('/login')
-    || pathname.startsWith('/register')
-    || pathname.startsWith('/auth/callback')
-
-  if (isPublicPath) {
-    if (user && !pathname.startsWith('/auth/callback'))
-      return NextResponse.redirect(new URL('/home', request.url))
-    return supabaseResponse
-  }
-
-  if (!user) return NextResponse.redirect(new URL('/login', request.url))
-
-  // Proteksi halaman per role
-  const needsRoleCheck =
-    pathname.startsWith('/home/admin') ||
-    pathname.startsWith('/home/owner')
-
-  if (needsRoleCheck) {
-    const { data: profile } = await supabase
-      .from('profiles').select('role').eq('id', user.id).single()
-    const role = profile?.role
-
-    // /home/owner — hanya OWNER
-    if (pathname.startsWith('/home/owner') && role !== 'OWNER')
-      return NextResponse.redirect(new URL('/home', request.url))
-
-    // /home/admin — OWNER dan ADMIN
-    if (pathname.startsWith('/home/admin') && !['OWNER', 'ADMIN'].includes(role ?? ''))
-      return NextResponse.redirect(new URL('/home', request.url))
-  }
-
-  return supabaseResponse
-}
-
-export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
-}
-</file>
-
-<file path="next.config.ts">
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
-  allowedDevOrigins: ['applicant-upstage-hastily.ngrok-free.dev'],
-};
-
-export default nextConfig;
-</file>
-
-<file path="src/app/login/page.tsx">
-'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-
-type LoginMode = 'owner' | 'staff'
-
-export default function LoginPage() {
-  const router = useRouter()
-
-  const [mode,        setMode]        = useState<LoginMode>('owner')
-  const [email,       setEmail]       = useState('')        // mode owner
-  const [username,    setUsername]    = useState('')        // mode staff
-  const [branchCode,  setBranchCode]  = useState('')        // mode staff
-  const [password,    setPassword]    = useState('')
-  const [loading,     setLoading]     = useState(false)
-  const [error,       setError]       = useState('')
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true); setError('')
-
-    let loginEmail: string
-
-    if (mode === 'owner') {
-      loginEmail = email.trim()
-    } else {
-      // Format: username.kodecabang@kasir.app
-      const uname = username.trim().toLowerCase().replace(/\s+/g, '')
-      const bcode = branchCode.trim().toLowerCase().replace(/\s+/g, '')
-      loginEmail = `${uname}.${bcode}@kasir.app`
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email:    loginEmail,
-      password,
-    })
-
-    if (error) {
-      setError(
-        error.message.includes('Invalid login credentials')
-          ? mode === 'owner'
-            ? 'Email atau password salah.'
-            : 'Username, kode cabang, atau password salah.'
-          : error.message
-      )
-      setLoading(false)
-      return
-    }
-
-    await supabase.auth.refreshSession()
-    router.push('/home')
-    router.refresh()
-  }
-
-  const inputClass = `w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
-    text-sm text-white placeholder-gray-600
-    focus:outline-none focus:border-orange-500 transition-colors`
-
-  return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-3">🍽️</div>
-          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
-          <p className="text-gray-500 text-sm mt-1">Masuk ke akunmu</p>
-        </div>
-
-        {/* Toggle mode */}
-        <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1 mb-6 gap-1">
-          <button
-            type="button"
-            onClick={() => { setMode('owner'); setError('') }}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
-              mode === 'owner'
-                ? 'bg-orange-600 text-white'
-                : 'text-gray-400 hover:text-gray-300'
-            }`}>
-            👑 Masuk sebagai Pemilik
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode('staff'); setError('') }}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
-              mode === 'staff'
-                ? 'bg-orange-600 text-white'
-                : 'text-gray-400 hover:text-gray-300'
-            }`}>
-            👤 Admin / Pegawai
-          </button>
-        </div>
-
-        <form onSubmit={handleLogin} className="space-y-4">
-
-          {mode === 'owner' ? (
-            /* ── Mode Pemilik ── */
-            <div>
-              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
-              <input
-                type="email" value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="email@toko.com"
-                required autoComplete="email"
-                className={inputClass}/>
-            </div>
-          ) : (
-            /* ── Mode Admin / Pegawai ── */
-            <>
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Username</label>
-                <input
-                  type="text" value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="contoh: budi"
-                  required autoComplete="username"
-                  className={inputClass}/>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5">
-                  Kode Cabang
-                </label>
-                <input
-                  type="text" value={branchCode}
-                  onChange={e => setBranchCode(e.target.value)}
-                  placeholder="contoh: pdg"
-                  required
-                  className={inputClass}/>
-                <p className="text-xs text-gray-600 mt-1">
-                  Kode cabang diberikan oleh pemilik atau admin toko
-                </p>
-              </div>
-            </>
-          )}
-
-          {/* Password — sama untuk keduanya */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Password</label>
-            <input
-              type="password" value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••" required
-              className={inputClass}/>
-          </div>
-
-          {error && (
-            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          <button type="submit" disabled={loading}
-            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
-              disabled:text-gray-600 text-white font-bold py-3 rounded-lg transition-colors text-sm">
-            {loading ? 'Masuk...' : 'Masuk'}
-          </button>
-        </form>
-
-        {mode === 'owner' && (
-          <p className="text-center text-sm text-gray-600 mt-6">
-            Belum punya toko?{' '}
-            <Link href="/register" className="text-orange-400 hover:text-orange-300 font-semibold">
-              Daftar di sini
-            </Link>
-          </p>
-        )}
-
-      </div>
-    </div>
-  )
-}
-</file>
-
 <file path="src/app/layout.tsx">
 // src/app/layout.tsx — pastikan file ini tidak berubah dari aslinya
 import type { Metadata } from "next"
@@ -3252,6 +3137,378 @@ next-features.md
 penjelasan-kode.html
 </file>
 
+<file path="src/app/home/kds/page.tsx">
+'use client'
+// src/app/home/kds/page.tsx
+// FIX: Realtime listener sekarang filter by branch_id — order cabang lain tidak masuk
+// FIX: Guard branch_id sebelum setup channel
+
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+import { OrderCard } from '@/components/kds/OrderCard'
+import type { Order } from '@/types/database'
+
+export default function KDSPage() {
+  const [orders,    setOrders]    = useState<Order[]>([])
+  const [connected, setConnected] = useState(false)
+  // CHANGED: Simpan branchId di state supaya bisa dipakai di realtime filter
+  const [branchId,  setBranchId]  = useState<string | null>(null)
+
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const channelRef  = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  useEffect(() => {
+    const init = () => {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
+    }
+    document.addEventListener('click',      init, { once: true })
+    document.addEventListener('touchstart', init, { once: true })
+    return () => {
+      document.removeEventListener('click',      init)
+      document.removeEventListener('touchstart', init)
+    }
+  }, [])
+
+  const playNewOrderSound = useCallback(() => {
+    const ctx = audioCtxRef.current
+    if (!ctx) return
+    const playBeep = (startTime: number, frequency: number, duration = 0.25) => {
+      const osc  = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'; osc.frequency.value = frequency
+      gain.gain.setValueAtTime(0.4, startTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
+      osc.start(startTime); osc.stop(startTime + duration)
+    }
+    playBeep(ctx.currentTime,        660)
+    playBeep(ctx.currentTime + 0.25, 880)
+  }, [])
+
+  // CHANGED: fetchPending sekarang return branchId supaya bisa disimpan
+  const fetchPending = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const { data: profile } = await supabase
+      .from('profiles').select('branch_id').eq('id', user.id).single()
+
+    const bid = profile?.branch_id || null
+    setBranchId(bid)
+
+    let query = supabase.from('orders').select('*, order_items(*)')
+      .eq('status', 'PENDING').order('created_at', { ascending: true })
+
+    if (bid) query = query.eq('branch_id', bid)
+
+    const { data } = await query
+    if (data) setOrders(data as Order[])
+
+    return bid
+  }, [])
+
+  const setupChannel = useCallback((bid: string | null) => {
+    if (channelRef.current) supabase.removeChannel(channelRef.current)
+
+    const channel = supabase.channel(`kds-realtime-${bid ?? 'global'}`)
+
+      .on('postgres_changes',
+        {
+          event: 'INSERT', schema: 'public', table: 'orders',
+          // CHANGED: filter by branch_id di level Supabase, bukan di handler
+          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
+        },
+        async (payload) => {
+          if (payload.new.status !== 'PENDING') return
+          const { data } = await supabase
+            .from('orders').select('*, order_items(*)')
+            .eq('id', payload.new.id).single()
+          if (data) {
+            setOrders(prev => [...prev, data as Order])
+            playNewOrderSound()
+          }
+        }
+      )
+
+      .on('postgres_changes',
+        {
+          event: 'UPDATE', schema: 'public', table: 'orders',
+          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
+        },
+        async (payload) => {
+          if (payload.new.status === 'PENDING') {
+            const alreadyExists = (prev: Order[]) => prev.some(o => o.id === payload.new.id)
+            setOrders(prev => {
+              if (alreadyExists(prev)) return prev // sudah ada (misalnya dari fetch awal), skip
+              return prev // tunggu fetch di bawah
+            })
+            const { data } = await supabase
+              .from('orders').select('*, order_items(*)')
+              .eq('id', payload.new.id).single()
+            if (data) {
+              setOrders(prev => {
+                if (prev.some(o => o.id === data.id)) return prev // double-check, hindari duplikat
+                playNewOrderSound()
+                return [...prev, data as Order]
+              })
+            }
+          } else {
+            // Status bukan PENDING (jadi READY/COMPLETED/CANCELLED) → hapus dari KDS
+            setOrders(prev => prev.filter(o => o.id !== payload.new.id))
+          }
+        }
+      )
+
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'order_items' },
+        (payload) => {
+          setOrders(prev => prev.map(order => ({
+            ...order,
+            order_items: order.order_items?.map(item =>
+              item.id === payload.new.id ? { ...item, is_ready: payload.new.is_ready } : item
+            ),
+          })))
+        }
+      )
+
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setConnected(true)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setConnected(false)
+          setTimeout(() => setupChannel(bid), 3_000)
+        } else if (status === 'CLOSED') {
+          setConnected(false)
+        }
+      })
+
+    channelRef.current = channel
+  }, [playNewOrderSound])
+
+  // CHANGED: Init flow — fetch dulu dapat branchId, baru setup channel dengan branchId
+  useEffect(() => {
+    let cancelled = false
+    fetchPending().then(bid => {
+      if (!cancelled) setupChannel(bid)
+    })
+    return () => {
+      cancelled = true
+      if (channelRef.current) supabase.removeChannel(channelRef.current)
+    }
+  }, [fetchPending, setupChannel])
+
+  const handleMarkReady = async (orderId: string) => {
+    await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
+        <h1 className="text-lg md:text-xl font-bold">🍳 DAPUR</h1>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl md:text-3xl font-black text-orange-400">{orders.length}</span>
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
+            <span className="text-xs text-gray-400 hidden sm:block">{connected ? 'LIVE' : 'Reconnecting...'}</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 p-3 md:p-5 overflow-x-auto overflow-y-auto">
+        {orders.length === 0 ? (
+          <div className="h-full min-h-[60vh] flex flex-col items-center justify-center text-gray-700">
+            <span className="text-6xl md:text-8xl mb-4">✅</span>
+            <p className="text-xl md:text-2xl font-bold">Semua Pesanan Selesai</p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap md:flex-nowrap gap-3 md:gap-4">
+            {orders.map(order => (
+              <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/login/page.tsx">
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+
+type LoginMode = 'owner' | 'staff'
+
+export default function LoginPage() {
+  const router = useRouter()
+
+  const [mode,        setMode]        = useState<LoginMode>('owner')
+  const [email,       setEmail]       = useState('')        // mode owner
+  const [username,    setUsername]    = useState('')        // mode staff
+  const [branchCode,  setBranchCode]  = useState('')        // mode staff
+  const [password,    setPassword]    = useState('')
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState('')
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true); setError('')
+
+    let loginEmail: string
+
+    if (mode === 'owner') {
+      loginEmail = email.trim()
+    } else {
+      // Format: username.kodecabang@kasir.app
+      const uname = username.trim().toLowerCase().replace(/\s+/g, '')
+      const bcode = branchCode.trim().toLowerCase().replace(/\s+/g, '')
+      loginEmail = `${uname}.${bcode}@kasir.app`
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email:    loginEmail,
+      password,
+    })
+
+    if (error) {
+      setError(
+        error.message.includes('Invalid login credentials')
+          ? mode === 'owner'
+            ? 'Email atau password salah.'
+            : 'Username, kode cabang, atau password salah.'
+          : error.message
+      )
+      setLoading(false)
+      return
+    }
+
+    await supabase.auth.refreshSession()
+    router.push('/home')
+    router.refresh()
+  }
+
+  const inputClass = `w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3
+    text-sm text-white placeholder-gray-600
+    focus:outline-none focus:border-orange-500 transition-colors`
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-3">🍽️</div>
+          <h1 className="text-2xl font-bold text-white">kasir-dapur</h1>
+          <p className="text-gray-500 text-sm mt-1">Masuk ke akunmu</p>
+        </div>
+
+        {/* Toggle mode */}
+        <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1 mb-6 gap-1">
+          <button
+            type="button"
+            onClick={() => { setMode('owner'); setError('') }}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
+              mode === 'owner'
+                ? 'bg-orange-600 text-white'
+                : 'text-gray-400 hover:text-gray-300'
+            }`}>
+            👑 Masuk sebagai Pemilik
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode('staff'); setError('') }}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${
+              mode === 'staff'
+                ? 'bg-orange-600 text-white'
+                : 'text-gray-400 hover:text-gray-300'
+            }`}>
+            👤 Admin / Pegawai
+          </button>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+
+          {mode === 'owner' ? (
+            /* ── Mode Pemilik ── */
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
+              <input
+                type="email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="email@toko.com"
+                required autoComplete="email"
+                className={inputClass}/>
+            </div>
+          ) : (
+            /* ── Mode Admin / Pegawai ── */
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Username</label>
+                <input
+                  type="text" value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="contoh: budi"
+                  required autoComplete="username"
+                  className={inputClass}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5">
+                  Kode Cabang
+                </label>
+                <input
+                  type="text" value={branchCode}
+                  onChange={e => setBranchCode(e.target.value)}
+                  placeholder="contoh: pdg"
+                  required
+                  className={inputClass}/>
+                <p className="text-xs text-gray-600 mt-1">
+                  Kode cabang diberikan oleh pemilik atau admin toko
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Password — sama untuk keduanya */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 mb-1.5">Password</label>
+            <input
+              type="password" value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••" required
+              className={inputClass}/>
+          </div>
+
+          {error && (
+            <div className="bg-red-950 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+              {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-800
+              disabled:text-gray-600 text-white font-bold py-3 rounded-lg transition-colors text-sm">
+            {loading ? 'Masuk...' : 'Masuk'}
+          </button>
+        </form>
+
+        {mode === 'owner' && (
+          <p className="text-center text-sm text-gray-600 mt-6">
+            Belum punya toko?{' '}
+            <Link href="/register" className="text-orange-400 hover:text-orange-300 font-semibold">
+              Daftar di sini
+            </Link>
+          </p>
+        )}
+
+      </div>
+    </div>
+  )
+}
+</file>
+
 <file path="src/app/home/admin/page.tsx">
 'use client'
 // src/app/home/admin/page.tsx
@@ -3533,13 +3790,13 @@ function AdminPageContent() {
       items?.forEach(i => { menuMap[i.menu_name] = (menuMap[i.menu_name] ?? 0) + i.quantity })
       const menuArr = Object.entries(menuMap).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty)
       setReportData({
-      total: orders.length,
-      revenue: orders.reduce((s, o) => s + Number(o.total_price), 0),
-      cash: orders.filter(o => o.payment_method === 'CASH').length,
-      qris: orders.filter(o => o.payment_method === 'QRIS').length,
-      topMenus: menuArr.slice(0, 5),
-      bottomMenus: menuArr.slice(-5).reverse(),
-    })
+        total: orders.length,
+        revenue: orders.reduce((s, o) => s + Number(o.total_price), 0),
+        cash: orders.filter(o => o.payment_method === 'CASH').length,
+        qris: orders.filter(o => o.payment_method === 'QRIS').length,
+        topMenus: menuArr.slice(0, 5),
+        bottomMenus: menuArr.slice(-5).reverse(),
+      })
     }
   }, [activeBranchId, reportRange])
 
@@ -3860,8 +4117,8 @@ function AdminPageContent() {
     if (!activeBranchId) return
 
     const updateData = isOwner
-    ? settingsForm
-    : { store_social: settingsForm.store_social, footer_text: settingsForm.footer_text }
+      ? settingsForm
+      : { store_social: settingsForm.store_social, footer_text: settingsForm.footer_text }
 
     const { error } = await supabase.from('store_settings')
       .upsert({ branch_id: activeBranchId, ...updateData }, { onConflict: 'branch_id' })
@@ -4184,16 +4441,16 @@ function AdminPageContent() {
                     </td>
                     {/* ← kolom Aksi dengan struk + selesai */}
                     <td className="px-3 py-2">
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1.5 min-w-[120px]">
                         <button onClick={() => printReceiptFromReport(o)}
                           className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
-                          🖨️ Struk
+                          Struk
                         </button>
-                        {o.status !== 'COMPLETED' && o.status !== 'CANCELLED' && (
+                        {o.status === 'READY' && (
                           <button onClick={() => markComplete(o.id)}
                             className="px-2 py-1 bg-green-900 hover:bg-green-800 text-green-400
                         rounded text-xs font-bold whitespace-nowrap">
-                            ✓ Selesai
+                            Selesai
                           </button>
                         )}
                       </div>
@@ -4319,190 +4576,6 @@ export default function AdminPage() {
     <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-600">Memuat...</div>}>
       <AdminPageContent/>
     </Suspense>
-  )
-}
-</file>
-
-<file path="src/app/home/kds/page.tsx">
-'use client'
-// src/app/home/kds/page.tsx
-// FIX: Realtime listener sekarang filter by branch_id — order cabang lain tidak masuk
-// FIX: Guard branch_id sebelum setup channel
-
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
-import { OrderCard } from '@/components/kds/OrderCard'
-import type { Order } from '@/types/database'
-
-export default function KDSPage() {
-  const [orders,    setOrders]    = useState<Order[]>([])
-  const [connected, setConnected] = useState(false)
-  // CHANGED: Simpan branchId di state supaya bisa dipakai di realtime filter
-  const [branchId,  setBranchId]  = useState<string | null>(null)
-
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const channelRef  = useRef<ReturnType<typeof supabase.channel> | null>(null)
-
-  useEffect(() => {
-    const init = () => {
-      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
-    }
-    document.addEventListener('click',      init, { once: true })
-    document.addEventListener('touchstart', init, { once: true })
-    return () => {
-      document.removeEventListener('click',      init)
-      document.removeEventListener('touchstart', init)
-    }
-  }, [])
-
-  const playNewOrderSound = useCallback(() => {
-    const ctx = audioCtxRef.current
-    if (!ctx) return
-    const playBeep = (startTime: number, frequency: number, duration = 0.25) => {
-      const osc  = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain); gain.connect(ctx.destination)
-      osc.type = 'sine'; osc.frequency.value = frequency
-      gain.gain.setValueAtTime(0.4, startTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
-      osc.start(startTime); osc.stop(startTime + duration)
-    }
-    playBeep(ctx.currentTime,        660)
-    playBeep(ctx.currentTime + 0.25, 880)
-  }, [])
-
-  // CHANGED: fetchPending sekarang return branchId supaya bisa disimpan
-  const fetchPending = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-
-    const { data: profile } = await supabase
-      .from('profiles').select('branch_id').eq('id', user.id).single()
-
-    const bid = profile?.branch_id || null
-    setBranchId(bid)
-
-    let query = supabase.from('orders').select('*, order_items(*)')
-      .eq('status', 'PENDING').order('created_at', { ascending: true })
-
-    if (bid) query = query.eq('branch_id', bid)
-
-    const { data } = await query
-    if (data) setOrders(data as Order[])
-
-    return bid
-  }, [])
-
-  const setupChannel = useCallback((bid: string | null) => {
-    if (channelRef.current) supabase.removeChannel(channelRef.current)
-
-    const channel = supabase.channel(`kds-realtime-${bid ?? 'global'}`)
-
-      .on('postgres_changes',
-        {
-          event: 'INSERT', schema: 'public', table: 'orders',
-          // CHANGED: filter by branch_id di level Supabase, bukan di handler
-          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
-        },
-        async (payload) => {
-          if (payload.new.status !== 'PENDING') return
-          const { data } = await supabase
-            .from('orders').select('*, order_items(*)')
-            .eq('id', payload.new.id).single()
-          if (data) {
-            setOrders(prev => [...prev, data as Order])
-            playNewOrderSound()
-          }
-        }
-      )
-
-      .on('postgres_changes',
-        {
-          event: 'UPDATE', schema: 'public', table: 'orders',
-          ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
-        },
-        async (payload) => {
-          if (payload.new.status === 'PENDING' && payload.old.status === 'PENDING_PAYMENT') {
-            const { data } = await supabase
-              .from('orders').select('*, order_items(*)')
-              .eq('id', payload.new.id).single()
-            if (data) { setOrders(prev => [...prev, data as Order]); playNewOrderSound() }
-          } else if (payload.new.status !== 'PENDING') {
-            setOrders(prev => prev.filter(o => o.id !== payload.new.id))
-          }
-        }
-      )
-
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'order_items' },
-        (payload) => {
-          setOrders(prev => prev.map(order => ({
-            ...order,
-            order_items: order.order_items?.map(item =>
-              item.id === payload.new.id ? { ...item, is_ready: payload.new.is_ready } : item
-            ),
-          })))
-        }
-      )
-
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          setConnected(true)
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setConnected(false)
-          setTimeout(() => setupChannel(bid), 3_000)
-        } else if (status === 'CLOSED') {
-          setConnected(false)
-        }
-      })
-
-    channelRef.current = channel
-  }, [playNewOrderSound])
-
-  // CHANGED: Init flow — fetch dulu dapat branchId, baru setup channel dengan branchId
-  useEffect(() => {
-    let cancelled = false
-    fetchPending().then(bid => {
-      if (!cancelled) setupChannel(bid)
-    })
-    return () => {
-      cancelled = true
-      if (channelRef.current) supabase.removeChannel(channelRef.current)
-    }
-  }, [fetchPending, setupChannel])
-
-  const handleMarkReady = async (orderId: string) => {
-    await supabase.from('orders').update({ status: 'READY' }).eq('id', orderId)
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
-        <h1 className="text-lg md:text-xl font-bold">🍳 DAPUR</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl md:text-3xl font-black text-orange-400">{orders.length}</span>
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}/>
-            <span className="text-xs text-gray-400 hidden sm:block">{connected ? 'LIVE' : 'Reconnecting...'}</span>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 p-3 md:p-5 overflow-x-auto overflow-y-auto">
-        {orders.length === 0 ? (
-          <div className="h-full min-h-[60vh] flex flex-col items-center justify-center text-gray-700">
-            <span className="text-6xl md:text-8xl mb-4">✅</span>
-            <p className="text-xl md:text-2xl font-bold">Semua Pesanan Selesai</p>
-          </div>
-        ) : (
-          <div className="flex flex-wrap md:flex-nowrap gap-3 md:gap-4">
-            {orders.map(order => (
-              <OrderCard key={order.id} order={order} onMarkReady={handleMarkReady} />
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
   )
 }
 </file>
@@ -4734,7 +4807,25 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
       }
     }
     fetchUser()
-    return () => { cancelled = true }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if (!session) {
+        // Reset state lama biar info akun tidak tertinggal
+        setRole(null)
+        setDisplayName('')
+        setUserId('')
+        setBranchName('')
+        router.replace('/login')
+      } else {
+        // Akun baru login → re-fetch data user terbaru
+        fetchUser()
+      }
+    })
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -4753,10 +4844,25 @@ export default function HomeLayout({ children }: { children: React.ReactNode }) 
         event: 'INSERT', schema: 'public',
         table: 'order_notifications', filter: `user_id=eq.${userId}`,
       }, async (payload) => {
-        const { data } = await supabase.from('order_notifications')
-          .select('*, orders(order_number, table_number, customer_name)')
-          .eq('id', payload.new.id).single()
-        if (!cancelled && data) setNotifications(prev => [data as OrderNotification, ...prev])
+        const notif = payload.new as OrderNotification
+        const { data: order } = await supabase
+          .from('orders')
+          .select('order_number, table_number, customer_name')
+          .eq('id', notif.order_id)
+          .single()
+        if (!cancelled) {
+          setNotifications(prev => [{ ...notif, orders: order } as OrderNotification, ...prev])
+        }
+      })
+      // FIX: tambah listener UPDATE — hapus dari state lokal kalau is_read jadi true
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public',
+        table: 'order_notifications', filter: `user_id=eq.${userId}`,
+      }, (payload) => {
+        if (payload.new.is_read === true) {
+          // Langsung hapus dari state tanpa perlu fetch ulang
+          setNotifications(prev => prev.filter(n => n.id !== payload.new.id))
+        }
       })
       .subscribe()
 
@@ -4969,7 +5075,8 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
   // V4: simpan lastOrderId — untuk tampilkan tombol cetak struk setelah berhasil
   const [lastOrderId,  setLastOrderId]  = useState<string | null>(null)
   const [lastOrderNum, setLastOrderNum] = useState<string>('')
-  const [qrisData, setQrisData] = useState<{ qrString: string; orderId: string } | null>(null)
+  const [snapUrl, setSnapUrl] = useState<string | null>(null)
+  const [checkingStatus, setCheckingStatus] = useState(false)
 
   const total   = getTotal()
   const cashNum = parseFloat(cashReceived) || 0
@@ -5001,136 +5108,157 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
   }
 }
 
-  const orderNumber = generateOrderNumber(branchCode || 'STR')
+  // const orderNumber = generateOrderNumber(branchCode || 'STR')
 
   const checkoutCash = async () => {
-    // Simpan cashNum sebelum clear — ini fix bug kembalian hilang!
     const savedCashNum = cashNum
+    const orderNumber = generateOrderNumber(branchCode || 'STR')  // ← generate di sini
 
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
         order_number: orderNumber,
-        table_number:   tableNumber,
-        customer_name:  customerName,
-        order_type:     orderType,
-        total_price:    total,
+        table_number: tableNumber,
+        customer_name: customerName,
+        order_type: orderType,
+        total_price: total,
         payment_method: 'CASH',
-        status:         'PENDING',
-        served_by:      servedById   || null,
+        status: 'PENDING',
+        served_by: servedById || null,
         served_by_name: servedByName || '',
-        cash_received:  savedCashNum,  // ← simpan ke DB
-        branch_id:      branchId,
+        cash_received: savedCashNum,
+        branch_id: branchId || null,
       })
       .select()
       .single()
-    if (e1) throw e1
+    if (e1) throw new Error(`DB error: ${e1.message} | ${e1.details} | code: ${e1.code}`)
 
     const { error: e2 } = await supabase.from('order_items').insert(
       items.map(i => ({
-        order_id:   order.id,
-        menu_id:    i.menuId,
-        menu_name:  i.menuName,
+        order_id: order.id,
+        menu_id: i.menuId,
+        menu_name: i.menuName,
         unit_price: i.unitPrice,
-        quantity:   i.quantity,
-        notes:      i.notes,
+        quantity: i.quantity,
+        notes: i.notes,
       }))
     )
-    if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
-    // FIX ALUR: tidak langsung buka struk — simpan ID untuk tombol cetak
     setLastOrderId(order.id)
     setLastOrderNum(order.order_number)
     clearCart()
     setCashReceived('')
     toast.success(`✅ ${order.order_number} dikirim ke dapur!`, {
-      description: savedCashNum > 0
-        ? `Kembalian: ${formatRupiah(change)}`
-        : undefined,
-      action: {
-        label: '🖨️ Cetak Struk',
-        onClick: () => openReceipt(order.id),
-      },
-      duration: 8000, // beri waktu lebih panjang agar bisa klik tombol cetak
+      description: savedCashNum > 0 ? `Kembalian: ${formatRupiah(Math.max(0, savedCashNum - total))}` : undefined,
+      action: { label: '🖨️ Cetak Struk', onClick: () => openReceipt(order.id) },
+      duration: 8000,
     })
   }
 
   const checkoutQris = async () => {
+    const orderNumber = generateOrderNumber(branchCode || 'STR')
 
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
         order_number: orderNumber,
-        table_number:   tableNumber,
-        customer_name:  customerName,
-        order_type:     orderType,
-        total_price:    total,
+        table_number: tableNumber,
+        customer_name: customerName,
+        order_type: orderType,
+        total_price: total,
         payment_method: 'QRIS',
-        status:         'PENDING_PAYMENT',
-        served_by:      servedById   || null,
+        status: 'PENDING_PAYMENT',
+        served_by: servedById || null,
         served_by_name: servedByName || '',
-        branch_id:      branchId,
+        branch_id: branchId || null,
       })
       .select()
       .single()
-    if (e1) throw e1
+    if (e1) throw new Error(`DB error: ${e1.message}`)
 
     const { error: e2 } = await supabase.from('order_items').insert(
       items.map(i => ({
-        order_id:   order.id,
-        menu_id:    i.menuId,
-        menu_name:  i.menuName,
+        order_id: order.id,
+        menu_id: i.menuId,
+        menu_name: i.menuName,
         unit_price: i.unitPrice,
-        quantity:   i.quantity,
-        notes:      i.notes,
+        quantity: i.quantity,
+        notes: i.notes,
       }))
     )
-    if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
-    // Call API Midtrans untuk generate QR
+    // Panggil Snap API
     const res = await fetch('/api/midtrans', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        orderId:     order.order_number,
-        grossAmount: Math.round(total), // Midtrans butuh integer
-        dbOrderId:   order.id,
+      body: JSON.stringify({
+        orderId: order.order_number,
+        grossAmount: Math.round(total),
+        dbOrderId: order.id,
       }),
     })
 
-    const data = await res.json()
+    const midtransData = await res.json()
 
-    if (!res.ok || !data.qrString) {
-      // Rollback: cancel order jika Midtrans gagal
+    if (!res.ok || !midtransData.snapUrl) {
+    // Rollback order kalau Snap gagal
       await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', order.id)
-      throw new Error(data.error ?? 'Midtrans gagal generate QR — pastikan MIDTRANS_SERVER_KEY sudah di-set di Vercel env')
+      throw new Error(midtransData.error ?? 'Gagal membuat sesi pembayaran Snap')
     }
 
-    setQrisData({ qrString: data.qrString, orderId: order.order_number })
     setLastOrderId(order.id)
     setLastOrderNum(order.order_number)
+    setSnapUrl(midtransData.snapUrl)
     clearCart()
-    toast.info('📱 Scan QR untuk membayar', { duration: 5000 })
+
+    toast.info('📱 Halaman pembayaran QRIS sudah dibuka', { duration: 5000 })
+
+    // Buka halaman Snap di tab baru
+    window.open(midtransData.snapUrl, '_blank')
+  }
+
+  const checkQrisStatus = async () => {
+    if (!lastOrderNum || checkingStatus) return
+    setCheckingStatus(true)
+    try {
+      const res = await fetch(`/api/midtrans/check?orderId=${lastOrderNum}`)
+      const data = await res.json()
+      if (data.isSuccess) {
+        toast.success('✅ Pembayaran dikonfirmasi! Order masuk ke dapur.')
+        setSnapUrl(null)
+      } else {
+        toast.info(`Status: ${data.transaction_status ?? 'Belum dibayar'}`)
+      }
+    } catch {
+      toast.error('Gagal cek status')
+    } finally {
+      setCheckingStatus(false)
+    }
   }
 
   const checkoutLater = async () => {
+    const orderNumber = generateOrderNumber(branchCode || 'STR')  // ← generate di sini
+
   const { data: order, error: e1 } = await supabase
     .from('orders')
     .insert({
-      order_number: orderNumber, 
+      order_number: orderNumber,
       table_number:   tableNumber,
       customer_name:  customerName,
       order_type:     orderType,
       total_price:    total,
-      payment_method: 'LATER',   // bayar nanti
-      status:         'PENDING', // langsung masuk dapur
+      payment_method: 'LATER',
+      status: 'PENDING',
       served_by:      servedById   || null,
       served_by_name: servedByName || '',
       cash_received:  0,
-      branch_id:      branchId,
+      branch_id: branchId || null,
     })
-    .select().single()
-  if (e1) throw e1
+      .select()
+      .single()
+    if (e1) throw new Error(`DB error: ${e1.message} | ${e1.details} | code: ${e1.code}`)
 
   const { error: e2 } = await supabase.from('order_items').insert(
     items.map(i => ({
@@ -5142,7 +5270,7 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
       notes:      i.notes,
     }))
   )
-  if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
   setLastOrderId(order.id)
   setLastOrderNum(order.order_number)
@@ -5378,6 +5506,35 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
             </div>
           )}
 
+          {/* Modal QR */}
+          {snapUrl && (
+            <div className="p-3 bg-blue-950 border border-blue-800 rounded-xl">
+              <p className="text-xs text-blue-400 font-bold mb-1">📱 Pembayaran QRIS</p>
+              <p className="text-xs text-gray-400 mb-3">
+                Halaman pembayaran sudah dibuka di tab baru. Kalau belum terbuka, klik tombol di bawah.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.open(snapUrl, '_blank')}
+                  className="flex-1 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg text-xs font-bold text-white">
+                  🔗 Buka Halaman Bayar
+                </button>
+                <button onClick={checkQrisStatus} disabled={checkingStatus}
+                  className="flex-1 py-2 bg-green-800 hover:bg-green-700 disabled:opacity-50 rounded-lg text-xs font-bold text-white">
+                  {checkingStatus ? '⏳ Mengecek...' : '✓ Cek Status'}
+                </button>
+                <button
+                  onClick={() => setSnapUrl(null)}
+                  className="py-2 px-3 text-gray-500 hover:text-gray-300 text-xs">
+                  ✕
+                </button>
+              </div>
+              <p className="text-xs text-gray-600 mt-2 text-center">
+                Order: <span className="font-mono text-orange-400">{lastOrderNum}</span>
+              </p>
+            </div>
+          )}
+
           <button onClick={handleCheckout}
             disabled={!isReadyToCheckout() || submitting}
             className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-wider transition-colors
@@ -5392,34 +5549,7 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
         </div>
       </div>
 
-      {/* Modal QR */}
-      {qrisData && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center text-black">
-            <h3 className="font-bold text-lg mb-1">Scan QRIS</h3>
-            <p className="text-sm text-gray-500 mb-4">Order: {qrisData.orderId}</p>
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrisData.qrString)}`}
-              alt="QR Code Pembayaran"
-              className="mx-auto mb-4 rounded-lg border"
-              width={220} height={220}
-            />
-            <p className="text-xs text-gray-400 mb-4">
-              Pesanan masuk dapur otomatis setelah pembayaran terkonfirmasi
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => openReceipt(lastOrderId!)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm">
-                🖨️ Cetak Struk
-              </button>
-              <button onClick={() => setQrisData(null)}
-                className="flex-1 py-2.5 bg-orange-600 text-white font-bold rounded-xl text-sm">
-                Selesai
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </>
   )
 }

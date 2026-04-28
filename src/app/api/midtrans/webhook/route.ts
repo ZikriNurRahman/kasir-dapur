@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         .from('orders')
         .update({ status: 'PENDING' })
         .eq('order_number', order_id)          // order_id Midtrans = order_number kita
-        .eq('status', 'PENDING_PAYMENT')       // safety check
+        .eq('status', ['PENDING_PAYMENT', 'CANCELLED'])       // safety check
 
       if (error) console.error('Supabase update error:', error)
       else console.log(`Order ${order_id} berhasil dibayar → PENDING`)

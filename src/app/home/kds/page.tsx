@@ -96,12 +96,24 @@ export default function KDSPage() {
           ...(bid ? { filter: `branch_id=eq.${bid}` } : {}),
         },
         async (payload) => {
-          if (payload.new.status === 'PENDING' && payload.old.status === 'PENDING_PAYMENT') {
+          if (payload.new.status === 'PENDING') {
+            const alreadyExists = (prev: Order[]) => prev.some(o => o.id === payload.new.id)
+            setOrders(prev => {
+              if (alreadyExists(prev)) return prev // sudah ada (misalnya dari fetch awal), skip
+              return prev // tunggu fetch di bawah
+            })
             const { data } = await supabase
               .from('orders').select('*, order_items(*)')
               .eq('id', payload.new.id).single()
-            if (data) { setOrders(prev => [...prev, data as Order]); playNewOrderSound() }
-          } else if (payload.new.status !== 'PENDING') {
+            if (data) {
+              setOrders(prev => {
+                if (prev.some(o => o.id === data.id)) return prev // double-check, hindari duplikat
+                playNewOrderSound()
+                return [...prev, data as Order]
+              })
+            }
+          } else {
+            // Status bukan PENDING (jadi READY/COMPLETED/CANCELLED) → hapus dari KDS
             setOrders(prev => prev.filter(o => o.id !== payload.new.id))
           }
         }

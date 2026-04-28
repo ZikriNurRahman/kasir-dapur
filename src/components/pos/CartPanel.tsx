@@ -35,7 +35,8 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
   // V4: simpan lastOrderId — untuk tampilkan tombol cetak struk setelah berhasil
   const [lastOrderId,  setLastOrderId]  = useState<string | null>(null)
   const [lastOrderNum, setLastOrderNum] = useState<string>('')
-  const [qrisData, setQrisData] = useState<{ qrString: string; orderId: string } | null>(null)
+  const [snapUrl, setSnapUrl] = useState<string | null>(null)
+  const [checkingStatus, setCheckingStatus] = useState(false)
 
   const total   = getTotal()
   const cashNum = parseFloat(cashReceived) || 0
@@ -67,136 +68,157 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
   }
 }
 
-  const orderNumber = generateOrderNumber(branchCode || 'STR')
+  // const orderNumber = generateOrderNumber(branchCode || 'STR')
 
   const checkoutCash = async () => {
-    // Simpan cashNum sebelum clear — ini fix bug kembalian hilang!
     const savedCashNum = cashNum
+    const orderNumber = generateOrderNumber(branchCode || 'STR')  // ← generate di sini
 
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
         order_number: orderNumber,
-        table_number:   tableNumber,
-        customer_name:  customerName,
-        order_type:     orderType,
-        total_price:    total,
+        table_number: tableNumber,
+        customer_name: customerName,
+        order_type: orderType,
+        total_price: total,
         payment_method: 'CASH',
-        status:         'PENDING',
-        served_by:      servedById   || null,
+        status: 'PENDING',
+        served_by: servedById || null,
         served_by_name: servedByName || '',
-        cash_received:  savedCashNum,  // ← simpan ke DB
-        branch_id:      branchId,
+        cash_received: savedCashNum,
+        branch_id: branchId || null,
       })
       .select()
       .single()
-    if (e1) throw e1
+    if (e1) throw new Error(`DB error: ${e1.message} | ${e1.details} | code: ${e1.code}`)
 
     const { error: e2 } = await supabase.from('order_items').insert(
       items.map(i => ({
-        order_id:   order.id,
-        menu_id:    i.menuId,
-        menu_name:  i.menuName,
+        order_id: order.id,
+        menu_id: i.menuId,
+        menu_name: i.menuName,
         unit_price: i.unitPrice,
-        quantity:   i.quantity,
-        notes:      i.notes,
+        quantity: i.quantity,
+        notes: i.notes,
       }))
     )
-    if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
-    // FIX ALUR: tidak langsung buka struk — simpan ID untuk tombol cetak
     setLastOrderId(order.id)
     setLastOrderNum(order.order_number)
     clearCart()
     setCashReceived('')
     toast.success(`✅ ${order.order_number} dikirim ke dapur!`, {
-      description: savedCashNum > 0
-        ? `Kembalian: ${formatRupiah(change)}`
-        : undefined,
-      action: {
-        label: '🖨️ Cetak Struk',
-        onClick: () => openReceipt(order.id),
-      },
-      duration: 8000, // beri waktu lebih panjang agar bisa klik tombol cetak
+      description: savedCashNum > 0 ? `Kembalian: ${formatRupiah(Math.max(0, savedCashNum - total))}` : undefined,
+      action: { label: '🖨️ Cetak Struk', onClick: () => openReceipt(order.id) },
+      duration: 8000,
     })
   }
 
   const checkoutQris = async () => {
+    const orderNumber = generateOrderNumber(branchCode || 'STR')
 
     const { data: order, error: e1 } = await supabase
       .from('orders')
       .insert({
         order_number: orderNumber,
-        table_number:   tableNumber,
-        customer_name:  customerName,
-        order_type:     orderType,
-        total_price:    total,
+        table_number: tableNumber,
+        customer_name: customerName,
+        order_type: orderType,
+        total_price: total,
         payment_method: 'QRIS',
-        status:         'PENDING_PAYMENT',
-        served_by:      servedById   || null,
+        status: 'PENDING_PAYMENT',
+        served_by: servedById || null,
         served_by_name: servedByName || '',
-        branch_id:      branchId,
+        branch_id: branchId || null,
       })
       .select()
       .single()
-    if (e1) throw e1
+    if (e1) throw new Error(`DB error: ${e1.message}`)
 
     const { error: e2 } = await supabase.from('order_items').insert(
       items.map(i => ({
-        order_id:   order.id,
-        menu_id:    i.menuId,
-        menu_name:  i.menuName,
+        order_id: order.id,
+        menu_id: i.menuId,
+        menu_name: i.menuName,
         unit_price: i.unitPrice,
-        quantity:   i.quantity,
-        notes:      i.notes,
+        quantity: i.quantity,
+        notes: i.notes,
       }))
     )
-    if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
-    // Call API Midtrans untuk generate QR
+    // Panggil Snap API
     const res = await fetch('/api/midtrans', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        orderId:     order.order_number,
-        grossAmount: Math.round(total), // Midtrans butuh integer
-        dbOrderId:   order.id,
+      body: JSON.stringify({
+        orderId: order.order_number,
+        grossAmount: Math.round(total),
+        dbOrderId: order.id,
       }),
     })
 
-    const data = await res.json()
+    const midtransData = await res.json()
 
-    if (!res.ok || !data.qrString) {
-      // Rollback: cancel order jika Midtrans gagal
+    if (!res.ok || !midtransData.snapUrl) {
+    // Rollback order kalau Snap gagal
       await supabase.from('orders').update({ status: 'CANCELLED' }).eq('id', order.id)
-      throw new Error(data.error ?? 'Midtrans gagal generate QR — pastikan MIDTRANS_SERVER_KEY sudah di-set di Vercel env')
+      throw new Error(midtransData.error ?? 'Gagal membuat sesi pembayaran Snap')
     }
 
-    setQrisData({ qrString: data.qrString, orderId: order.order_number })
     setLastOrderId(order.id)
     setLastOrderNum(order.order_number)
+    setSnapUrl(midtransData.snapUrl)
     clearCart()
-    toast.info('📱 Scan QR untuk membayar', { duration: 5000 })
+
+    toast.info('📱 Halaman pembayaran QRIS sudah dibuka', { duration: 5000 })
+
+    // Buka halaman Snap di tab baru
+    window.open(midtransData.snapUrl, '_blank')
+  }
+
+  const checkQrisStatus = async () => {
+    if (!lastOrderNum || checkingStatus) return
+    setCheckingStatus(true)
+    try {
+      const res = await fetch(`/api/midtrans/check?orderId=${lastOrderNum}`)
+      const data = await res.json()
+      if (data.isSuccess) {
+        toast.success('✅ Pembayaran dikonfirmasi! Order masuk ke dapur.')
+        setSnapUrl(null)
+      } else {
+        toast.info(`Status: ${data.transaction_status ?? 'Belum dibayar'}`)
+      }
+    } catch {
+      toast.error('Gagal cek status')
+    } finally {
+      setCheckingStatus(false)
+    }
   }
 
   const checkoutLater = async () => {
+    const orderNumber = generateOrderNumber(branchCode || 'STR')  // ← generate di sini
+
   const { data: order, error: e1 } = await supabase
     .from('orders')
     .insert({
-      order_number: orderNumber, 
+      order_number: orderNumber,
       table_number:   tableNumber,
       customer_name:  customerName,
       order_type:     orderType,
       total_price:    total,
-      payment_method: 'LATER',   // bayar nanti
-      status:         'PENDING', // langsung masuk dapur
+      payment_method: 'LATER',
+      status: 'PENDING',
       served_by:      servedById   || null,
       served_by_name: servedByName || '',
       cash_received:  0,
-      branch_id:      branchId,
+      branch_id: branchId || null,
     })
-    .select().single()
-  if (e1) throw e1
+      .select()
+      .single()
+    if (e1) throw new Error(`DB error: ${e1.message} | ${e1.details} | code: ${e1.code}`)
 
   const { error: e2 } = await supabase.from('order_items').insert(
     items.map(i => ({
@@ -208,7 +230,7 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
       notes:      i.notes,
     }))
   )
-  if (e2) throw e2
+    if (e2) throw new Error(`Items error: ${e2.message}`)
 
   setLastOrderId(order.id)
   setLastOrderNum(order.order_number)
@@ -444,6 +466,35 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
             </div>
           )}
 
+          {/* Modal QR */}
+          {snapUrl && (
+            <div className="p-3 bg-blue-950 border border-blue-800 rounded-xl">
+              <p className="text-xs text-blue-400 font-bold mb-1">📱 Pembayaran QRIS</p>
+              <p className="text-xs text-gray-400 mb-3">
+                Halaman pembayaran sudah dibuka di tab baru. Kalau belum terbuka, klik tombol di bawah.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.open(snapUrl, '_blank')}
+                  className="flex-1 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg text-xs font-bold text-white">
+                  🔗 Buka Halaman Bayar
+                </button>
+                <button onClick={checkQrisStatus} disabled={checkingStatus}
+                  className="flex-1 py-2 bg-green-800 hover:bg-green-700 disabled:opacity-50 rounded-lg text-xs font-bold text-white">
+                  {checkingStatus ? '⏳ Mengecek...' : '✓ Cek Status'}
+                </button>
+                <button
+                  onClick={() => setSnapUrl(null)}
+                  className="py-2 px-3 text-gray-500 hover:text-gray-300 text-xs">
+                  ✕
+                </button>
+              </div>
+              <p className="text-xs text-gray-600 mt-2 text-center">
+                Order: <span className="font-mono text-orange-400">{lastOrderNum}</span>
+              </p>
+            </div>
+          )}
+
           <button onClick={handleCheckout}
             disabled={!isReadyToCheckout() || submitting}
             className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-wider transition-colors
@@ -458,34 +509,7 @@ export function CartPanel({ servedByName, servedById, branchId, branchCode }: Pr
         </div>
       </div>
 
-      {/* Modal QR */}
-      {qrisData && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center text-black">
-            <h3 className="font-bold text-lg mb-1">Scan QRIS</h3>
-            <p className="text-sm text-gray-500 mb-4">Order: {qrisData.orderId}</p>
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrisData.qrString)}`}
-              alt="QR Code Pembayaran"
-              className="mx-auto mb-4 rounded-lg border"
-              width={220} height={220}
-            />
-            <p className="text-xs text-gray-400 mb-4">
-              Pesanan masuk dapur otomatis setelah pembayaran terkonfirmasi
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => openReceipt(lastOrderId!)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm">
-                🖨️ Cetak Struk
-              </button>
-              <button onClick={() => setQrisData(null)}
-                className="flex-1 py-2.5 bg-orange-600 text-white font-bold rounded-xl text-sm">
-                Selesai
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </>
   )
 }
